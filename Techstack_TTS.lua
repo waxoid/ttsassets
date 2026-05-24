@@ -152,7 +152,7 @@ local TALENT_ROW_PLACEHOLDER_GUIDS = {
     "1d983a",
 }
 
-local DISCARD_SLOT_THRESHOLD = 1.2
+local DISCARD_SLOT_THRESHOLD = 1.35  -- was 1.2; expanded for more forgiving discard detection
 local DISCARD_ROTATION = {x = 0, y = 90, z = 0}
 local RESHUFFLE_CONFIRM_SECONDS = 6
 local RESHUFFLE_PENDING_BY_COLOR = {}
@@ -1302,7 +1302,6 @@ local function scheduleHandRotationIfCurrent(obj, zone, isIndustry, delayFrames,
     end, delayFrames or 0)
 end
 
-local function isObjectAtDiscardPile(obj)
     if not obj then return false end
     if obj.hasTag and obj.hasTag("developer") then return false end
 
@@ -1312,6 +1311,19 @@ local function isObjectAtDiscardPile(obj)
     local pos = obj.getPosition()
     local dx = pos.x - discardPos.x
     local dz = pos.z - discardPos.z
+
+    -- If the card is closer to the main deck than the discard pile, let main deck logic handle it
+    local mainDeck = getLiveObjectByGUID and getLiveObjectByGUID(TECH_DECK_GUID)
+    if mainDeck then
+        local deckPos = mainDeck.getPosition()
+        local deckDx = pos.x - deckPos.x
+        local deckDz = pos.z - deckPos.z
+        local deckDist2 = deckDx * deckDx + deckDz * deckDz
+        local discardDist2 = dx * dx + dz * dz
+        if deckDist2 < discardDist2 then
+            return false
+        end
+    end
 
     return (dx * dx + dz * dz) <= (DISCARD_SLOT_THRESHOLD * DISCARD_SLOT_THRESHOLD)
 end
@@ -1699,6 +1711,7 @@ end
 
 
 
+
 local function handleDiscardDrop(obj)
     if not obj or (obj.type ~= "Card" and obj.type ~= "Deck") then return false end
     if obj.hasTag and obj.hasTag("developer") then return false end
@@ -1721,14 +1734,32 @@ local function handleDiscardDrop(obj)
         discardPos = {x = pos.x, y = pos.y + stackHeight, z = pos.z}
     end
 
+
+    if EDIT_MODE then
+        print("discard: handleDiscardDrop obj=" .. tostring(obj.getGUID()) .. " type=" .. tostring(obj.type))
+        print("discard: discardPos=" .. string.format("{x=%.2f, y=%.2f, z=%.2f}", discardPos.x, discardPos.y, discardPos.z))
+        print("discard: targetRot=" .. string.format("{x=%.2f, y=%.2f, z=%.2f}", targetRot.x, targetRot.y, targetRot.z))
+        if discardDeck then
+            print("discard: discardDeck present, stackHeight=" .. tostring(stackHeight))
+        else
+            print("discard: discardDeck is nil (first card)")
+        end
+        local pos = obj.getPosition()
+        print("discard: obj initial pos=" .. string.format("{x=%.2f, y=%.2f, z=%.2f}", pos.x, pos.y, pos.z))
+    end
+
     -- Move the dropped object to the top of the discard pile and flip face up
-    pcall(function()
+
+    local okMove, moveErr = pcall(function()
         if obj.type == "Card" and obj.is_face_down then
             obj.flip()
         end
         obj.setRotationSmooth(targetRot, false, true)
         obj.setPositionSmooth({x = discardPos.x, y = discardPos.y + yOffset, z = discardPos.z}, false, true)
     end)
+    if EDIT_MODE then
+        print("discard: setPositionSmooth to {x=" .. discardPos.x .. ", y=" .. (discardPos.y + yOffset) .. ", z=" .. discardPos.z .. "} ok=" .. tostring(okMove) .. (not okMove and (" err=" .. tostring(moveErr)) or ""))
+    end
 
     -- If it's a deck, split and stack each card on top, flipping face up
     if obj.type == "Deck" then
@@ -3843,6 +3874,11 @@ local function findProjectConvenienceTarget(droppedProject, player_color)
     if not droppedProject or droppedProject.type ~= "Card" then return nil end
     if not safeHasTag(droppedProject, "project") or safeHasTag(droppedProject, "improvement") then return nil end
 
+    -- Restrict: never convenience stack if at/near discard pile
+    if isObjectAtDiscardPile and (isObjectAtDiscardPile(droppedProject) or (isObjectAtDevDiscardPile and isObjectAtDevDiscardPile(droppedProject))) then
+        return nil
+    end
+
     local droppedGuid = droppedProject.getGUID()
     local droppedPos = safeGetPosition(droppedProject)
     if not droppedPos then return nil end
@@ -3871,8 +3907,22 @@ local function findProjectConvenienceTarget(droppedProject, player_color)
 
     for _, other in ipairs(getAllObjects()) do
         if other and other.type == "Card" then
+            -- Restrict: never convenience stack onto a card at/near discard pile
+            if isObjectAtDiscardPile and (isObjectAtDiscardPile(other) or (isObjectAtDevDiscardPile and isObjectAtDevDiscardPile(other))) then
+                goto continue
+            end
+            -- Restrict: only allow if orientation matches (within 5 degrees on all axes)
+            local r1 = droppedProject.getRotation()
+            local r2 = other.getRotation()
+            local function closeEnough(a, b)
+                return math.abs(((a or 0) - (b or 0) + 180) % 360 - 180) <= 5
+            end
+            if not (closeEnough(r1.x, r2.x) and closeEnough(r1.y, r2.y) and closeEnough(r1.z, r2.z)) then
+                goto continue
+            end
             local okOtherGuid, otherGuid = pcall(function() return other.getGUID() end)
             if okOtherGuid and otherGuid and otherGuid ~= droppedGuid then
+                                ::continue::
                 scannedCount = scannedCount + 1
                 if not prevIntersect[otherGuid] then
                     local otherPos = safeGetPosition(other)
@@ -4682,13 +4732,16 @@ function onObjectDrop(player_color, obj)
     if obj and not handledMainDeck and (objType == "Card" or objType == "Deck") and not safeHasTag(obj, "developer") then
         local guid = safeGetGuid(obj)
         if not guid then return end
+        print("discard: about to call handleDiscardDrop for guid=" .. tostring(guid) .. " type=" .. tostring(objType))
         Wait.frames(function()
             local liveObj = getObjectFromGUID(guid)
             if liveObj then
+                print("discard: handleDiscardDrop entry for guid=" .. tostring(guid))
                 handleDiscardDrop(liveObj)
             else
                 local discardObj = getDiscardDeckObject()
                 if discardObj then
+                    print("discard: handleDiscardDrop fallback for discard deck object")
                     handleDiscardDrop(discardObj)
                 end
             end
