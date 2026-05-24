@@ -5769,51 +5769,49 @@ function tryPlaceMarkerOnProjectCard(projectObj, ownerLabel, attemptsLeft)
 
     -- Condition (c): Check if card has snap points
     local okSnap, snapPoints = pcall(function()
-        return projectObj.getSnapPoints and projectObj.getSnapPoints() or {}
+        if projectObj.getSnapPoints then
+            return projectObj:getSnapPoints()
+        else
+            return {}
+        end
     end)
     if not okSnap or type(snapPoints) ~= "table" or #snapPoints == 0 then
         stackLog("tryPlaceMarkerOnProjectCard: card has no snap points guid=" .. tostring(projectGuid))
         return
     end
 
-    -- ...existing code...
-            return
-        end
-
-        -- If any marker is already attached or sitting on/near this base, do not place another.
-        if hasAnyMarkerOnOrNearCard(liveBase) then
-            stackLog("owner marker skipped: marker already on/near base=" .. tostring(baseGuid))
-            return
-        end
-
-        local basePos = safeGetPosition(liveBase)
-        if not basePos then
-            if attemptsLeft > 0 then
-                Wait.frames(function() tryPlaceMarker(attemptsLeft - 1) end, 10)
-            else
-                stackLog("owner marker skipped: base position unavailable owner=" .. tostring(ownerLabel) .. " base=" .. tostring(baseGuid))
-            end
-            return
-        end
-        -- Exception: base+tech cards use second leftmost snap point
-        local snapPos = nil
-        if liveBase.hasTag and liveBase.hasTag("base") and liveBase.hasTag("tech") then
-            snapPos = getSecondLeftmostSnapWorldPosition(liveBase)
-        end
-        if not snapPos then
-            snapPos = getLeftmostSnapWorldPosition(liveBase)
-        end
-        local targetPos = makeVec3(
-            vecComponent(snapPos, "x") or vecComponent(basePos, "x") or 0,
-            (vecComponent(basePos, "y") or 1) + 0.35,
-            vecComponent(snapPos, "z") or vecComponent(basePos, "z") or 0
-        )
-
-        if spawnDirectMarkerForOwner(ownerLabel, targetPos, nil, "base_marker_guid:" .. tostring(baseGuid), STACK_BASE_MARKER_TAG) then
-            stackLog("owner marker direct mode owner=" .. tostring(ownerLabel) .. " base=" .. tostring(baseGuid))
-        end
+    -- If any marker is already attached or sitting on/near this base, do not place another.
+    if hasAnyMarkerOnOrNearCard(liveBase) then
+        stackLog("owner marker skipped: marker already on/near base=" .. tostring(baseGuid))
+        return
     end
 
+    local basePos = safeGetPosition(liveBase)
+    if not basePos then
+        if attemptsLeft > 0 then
+            Wait.frames(function() tryPlaceMarker(attemptsLeft - 1) end, 10)
+        else
+            stackLog("owner marker skipped: base position unavailable owner=" .. tostring(ownerLabel) .. " base=" .. tostring(baseGuid))
+        end
+        return
+    end
+    -- Exception: base+tech cards use second leftmost snap point
+    local snapPos = nil
+    if liveBase.hasTag and liveBase.hasTag("base") and liveBase.hasTag("tech") then
+        snapPos = getSecondLeftmostSnapWorldPosition(liveBase)
+    end
+    if not snapPos then
+        snapPos = getLeftmostSnapWorldPosition(liveBase)
+    end
+    local targetPos = makeVec3(
+        vecComponent(snapPos, "x") or vecComponent(basePos, "x") or 0,
+        (vecComponent(basePos, "y") or 1) + 0.35,
+        vecComponent(snapPos, "z") or vecComponent(basePos, "z") or 0
+    )
+
+    if spawnDirectMarkerForOwner(ownerLabel, targetPos, nil, "base_marker_guid:" .. tostring(baseGuid), STACK_BASE_MARKER_TAG) then
+        stackLog("owner marker direct mode owner=" .. tostring(ownerLabel) .. " base=" .. tostring(baseGuid))
+    end
 
     tryPlaceMarker(120)
 end
