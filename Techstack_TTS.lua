@@ -5817,7 +5817,6 @@ function tryPlaceMarkerOnProjectCard(projectObj, ownerLabel, attemptsLeft)
 
     tryPlaceMarker(120)
 end
-end
 
 local function getTuckedImprovementY(baseY)
     local targetY = baseY - STACK_IMPROVEMENT_DY
