@@ -3871,6 +3871,16 @@ local function getConvenienceAxisAndSign(referenceThing, player_color)
 end
 
 local function findProjectConvenienceTarget(droppedProject, player_color)
+        -- Only allow convenience stacking if both cards are in the 'face up in hand' orientation for the player seat
+        local function isCardInHandLandscapeOrientation(card, player_color)
+            if not card or not player_color then return false end
+            local rot = card.getRotation()
+            local expectedYaw = getHandRelativeCardYaw(nil, false) -- nil zone, project card
+            local function closeEnough(a, b)
+                return math.abs(((a or 0) - (b or 0) + 180) % 360 - 180) <= 5
+            end
+            return closeEnough(rot.y, expectedYaw)
+        end
     if not droppedProject or droppedProject.type ~= "Card" then return nil end
     if not safeHasTag(droppedProject, "project") or safeHasTag(droppedProject, "improvement") then return nil end
 
@@ -3887,6 +3897,10 @@ local function findProjectConvenienceTarget(droppedProject, player_color)
     if not droppedBounds then return nil end
 
     local axis, sign = getConvenienceAxisAndSign(droppedProject, player_color)
+    -- Only allow convenience stacking when axis is 'x' (landscape), never 'z' (length-wise)
+    if axis ~= "x" then
+        return nil
+    end
 
     local prevIntersect = PROJECT_PICKUP_INTERSECTING_GUIDS_BY_GUID[droppedGuid] or {}
 
@@ -3907,6 +3921,10 @@ local function findProjectConvenienceTarget(droppedProject, player_color)
 
     for _, other in ipairs(getAllObjects()) do
         if other and other.type == "Card" then
+            -- Only allow if both cards are in hand landscape orientation for this player
+            if not (isCardInHandLandscapeOrientation(droppedProject, player_color) and isCardInHandLandscapeOrientation(other, player_color)) then
+                goto continue
+            end
             -- Restrict: never convenience stack onto a card at/near discard pile
             if isObjectAtDiscardPile and (isObjectAtDiscardPile(other) or (isObjectAtDevDiscardPile and isObjectAtDevDiscardPile(other))) then
                 goto continue
