@@ -3897,10 +3897,6 @@ local function findProjectConvenienceTarget(droppedProject, player_color)
     if not droppedBounds then return nil end
 
     local axis, sign = getConvenienceAxisAndSign(droppedProject, player_color)
-    -- Only allow convenience stacking when axis is 'x' (landscape), never 'z' (length-wise)
-    if axis ~= "x" then
-        return nil
-    end
 
     local prevIntersect = PROJECT_PICKUP_INTERSECTING_GUIDS_BY_GUID[droppedGuid] or {}
 
