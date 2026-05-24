@@ -1300,8 +1300,10 @@ local function scheduleHandRotationIfCurrent(obj, zone, isIndustry, delayFrames,
             liveObj.setRotationSmooth({x = 0, y = yaw, z = 0}, false, true)
         end)
     end, delayFrames or 0)
+
 end
 
+local function isObjectAtDiscardPile(obj)
     if not obj then return false end
     if obj.hasTag and obj.hasTag("developer") then return false end
 
