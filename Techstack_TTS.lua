@@ -3918,6 +3918,7 @@ local function findProjectConvenienceTarget(droppedProject, player_color)
     local bestAlong = nil
 
     for _, other in ipairs(getAllObjects()) do
+        ::continue::
         if other and other.type == "Card" then
             -- Only allow if both cards are in hand landscape orientation for this player
             if not (isCardInHandLandscapeOrientation(droppedProject, player_color) and isCardInHandLandscapeOrientation(other, player_color)) then
@@ -3938,7 +3939,6 @@ local function findProjectConvenienceTarget(droppedProject, player_color)
             end
             local okOtherGuid, otherGuid = pcall(function() return other.getGUID() end)
             if okOtherGuid and otherGuid and otherGuid ~= droppedGuid then
-                                ::continue::
                 scannedCount = scannedCount + 1
                 if not prevIntersect[otherGuid] then
                     local otherPos = safeGetPosition(other)
