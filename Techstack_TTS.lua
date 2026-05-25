@@ -5569,34 +5569,6 @@ local function findBaseCardNearObject(obj)
     return best
 end
 
-local function getTopRowStackSlotPosition(pos)
-    if not pos then return nil end
-
-    local best = nil
-    local bestDist = nil
-
-    for col = 0, STACK_COLUMNS - 1 do
-        local slotPos = {
-            x = STACK_TOPLEFT_POSITION.x + (col * STACK_LAYOUT_DX),
-            y = STACK_TOPLEFT_POSITION.y,
-            z = STACK_TOPLEFT_POSITION.z
-        }
-
-        local dx = pos.x - slotPos.x
-        local dz = pos.z - slotPos.z
-        local d2 = (dx * dx) + (dz * dz)
-
-        if math.abs(dx) <= STACK_POSITION_TOLERANCE and math.abs(dz) <= STACK_POSITION_TOLERANCE then
-            if not bestDist or d2 < bestDist then
-                best = slotPos
-                bestDist = d2
-            end
-        end
-    end
-
-    return best
-end
-
 local function getStackCounterOwnerGuid(obj)
     if not obj or not obj.getGMNotes then return nil end
     return string.match(obj.getGMNotes() or "", "^base_guid:(%w+)$")
