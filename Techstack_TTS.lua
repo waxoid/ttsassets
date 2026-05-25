@@ -257,10 +257,7 @@ local function getDirectMarkerTint(ownerLabel)
 end
 
 local function spawnDirectMarkerForOwner(ownerLabel, targetPos, markerName, markerNotes, extraTag)
-    -- TEMPORARY: Disable marker placement for debugging TTS hang
     if not targetPos then return false end
-    stackLog("[TEMPORARY] spawnDirectMarkerForOwner disabled for debugging TTS hang")
-    return false
 
     local okSpawn, spawnErr = pcall(function()
         spawnObject({
@@ -5725,9 +5722,7 @@ local function isCardSnappedForAutoMarker(cardObj)
 end
 
 function tryPlaceMarkerOnProjectCard(projectObj, ownerLabel, attemptsLeft)
-    -- TEMPORARY: Disable marker placement for debugging TTS hang
     if not projectObj or not ownerLabel then return end
-    attemptsLeft = 1 -- TEMPORARY: force attemptsLeft = 1 to suppress recursion
 
     -- Guard: must be a project card that is NOT an improvement
     if safeGetType(projectObj) ~= "Card" or not safeHasTag(projectObj, "project") or safeHasTag(projectObj, "improvement") then
@@ -5773,51 +5768,108 @@ function tryPlaceMarkerOnProjectCard(projectObj, ownerLabel, attemptsLeft)
     end
 
     -- Condition (c): Check if card has snap points
-    -- TEMPORARY: Disable marker placement for debugging TTS hang
-    return
     local okSnap, snapPoints = pcall(function()
-        if projectObj.getSnapPoints then
-            return projectObj:getSnapPoints()
-        else
-            return {}
-        end
+        return projectObj.getSnapPoints and projectObj.getSnapPoints() or {}
     end)
     if not okSnap or type(snapPoints) ~= "table" or #snapPoints == 0 then
         stackLog("tryPlaceMarkerOnProjectCard: card has no snap points guid=" .. tostring(projectGuid))
         return
     end
 
-    -- If any marker is already attached or sitting on/near this base, do not place another.
-    if hasAnyMarkerOnOrNearCard(liveBase) then
-        stackLog("owner marker skipped: marker already on/near base=" .. tostring(baseGuid))
-        return
-    end
-
-    local basePos = safeGetPosition(liveBase)
-    if not basePos then
-        if attemptsLeft > 0 then
-            Wait.frames(function() tryPlaceMarker(attemptsLeft - 1) end, 10)
-        else
-            stackLog("owner marker skipped: base position unavailable owner=" .. tostring(ownerLabel) .. " base=" .. tostring(baseGuid))
+    -- All conditions met; attempt to place marker
+    local function tryPlace(triesLeft)
+        local liveCard = getObjectFromGUID(projectGuid)
+        if not liveCard then
+            stackLog("tryPlaceMarkerOnProjectCard aborted: card missing guid=" .. tostring(projectGuid))
+            return
         end
+
+        if not isCardSnappedForAutoMarker(liveCard) then
+            local liveRot = liveCard.getRotation and liveCard.getRotation() or nil
+            stackLog("tryPlaceMarkerOnProjectCard: placement-time skip unsnapped card guid=" .. tostring(projectGuid)
+                .. " rotY=" .. string.format("%.1f", liveRot and liveRot.y or -999))
+            return
+        end
+
+        -- Re-check at placement time; another delayed pass may have already placed one.
+        if hasAnyMarkerOnOrNearCard(liveCard) then
+            stackLog("tryPlaceMarkerOnProjectCard: marker detected at placement-time, skipping guid=" .. tostring(projectGuid))
+            return
+        end
+
+        local cardPos = liveCard.getPosition()
+        local snapPos = getLeftmostSnapWorldPosition(liveCard)
+        local targetPos = makeVec3(
+            vecComponent(snapPos, "x") or vecComponent(cardPos, "x") or 0,
+            (vecComponent(cardPos, "y") or 1) + 0.35,
+            vecComponent(snapPos, "z") or vecComponent(cardPos, "z") or 0
+        )
+
+        if spawnDirectMarkerForOwner(ownerLabel, targetPos, nil, "project_marker_guid:" .. tostring(projectGuid), STACK_BASE_MARKER_TAG) then
+            stackLog("tryPlaceMarkerOnProjectCard: direct marker mode owner=" .. tostring(ownerLabel) .. " card=" .. tostring(projectGuid))
+        end
+    end
+
+    tryPlace(attemptsLeft or 30)
+end
+
+local function placeOwnerMarkerOnBase(baseObj, ownerLabel)
+    if not baseObj or not ownerLabel then return end
+
+    local okBaseGuid, baseGuid = pcall(function()
+        return baseObj.getGUID()
+    end)
+    if not okBaseGuid or not baseGuid then
+        stackLog("owner marker aborted: failed to read base guid owner=" .. tostring(ownerLabel))
         return
     end
-    -- Exception: base+tech cards use second leftmost snap point
-    local snapPos = nil
-    if liveBase.hasTag and liveBase.hasTag("base") and liveBase.hasTag("tech") then
-        snapPos = getSecondLeftmostSnapWorldPosition(liveBase)
-    end
-    if not snapPos then
-        snapPos = getLeftmostSnapWorldPosition(liveBase)
-    end
-    local targetPos = makeVec3(
-        vecComponent(snapPos, "x") or vecComponent(basePos, "x") or 0,
-        (vecComponent(basePos, "y") or 1) + 0.35,
-        vecComponent(snapPos, "z") or vecComponent(basePos, "z") or 0
-    )
 
-    if spawnDirectMarkerForOwner(ownerLabel, targetPos, nil, "base_marker_guid:" .. tostring(baseGuid), STACK_BASE_MARKER_TAG) then
-        stackLog("owner marker direct mode owner=" .. tostring(ownerLabel) .. " base=" .. tostring(baseGuid))
+    local function tryPlaceMarker(attemptsLeft)
+        local liveBase = getObjectFromGUID(baseGuid)
+        if not liveBase then
+            stackLog("owner marker aborted: base missing guid=" .. tostring(baseGuid))
+            return
+        end
+
+        if not isCardSnappedForAutoMarker(liveBase) then
+            local liveRot = liveBase.getRotation and liveBase.getRotation() or nil
+            stackLog("owner marker skipped: base unsnapped guid=" .. tostring(baseGuid)
+                .. " rotY=" .. string.format("%.1f", liveRot and liveRot.y or -999))
+            return
+        end
+
+        -- If any marker is already attached or sitting on/near this base, do not place another.
+        if hasAnyMarkerOnOrNearCard(liveBase) then
+            stackLog("owner marker skipped: marker already on/near base=" .. tostring(baseGuid))
+            return
+        end
+
+        local basePos = safeGetPosition(liveBase)
+        if not basePos then
+            if attemptsLeft > 0 then
+                Wait.frames(function() tryPlaceMarker(attemptsLeft - 1) end, 10)
+            else
+                stackLog("owner marker skipped: base position unavailable owner=" .. tostring(ownerLabel) .. " base=" .. tostring(baseGuid))
+            end
+            return
+        end
+        -- Exception: base+tech cards use second leftmost snap point
+        local snapPos = nil
+        if liveBase.hasTag and liveBase.hasTag("base") and liveBase.hasTag("tech") then
+            snapPos = getSecondLeftmostSnapWorldPosition(liveBase)
+        end
+        if not snapPos then
+            snapPos = getLeftmostSnapWorldPosition(liveBase)
+        end
+        local targetPos = makeVec3(
+            vecComponent(snapPos, "x") or vecComponent(basePos, "x") or 0,
+            (vecComponent(basePos, "y") or 1) + 0.35,
+            vecComponent(snapPos, "z") or vecComponent(basePos, "z") or 0
+        )
+
+        if spawnDirectMarkerForOwner(ownerLabel, targetPos, nil, "base_marker_guid:" .. tostring(baseGuid), STACK_BASE_MARKER_TAG) then
+            stackLog("owner marker direct mode owner=" .. tostring(ownerLabel) .. " base=" .. tostring(baseGuid))
+        end
     end
 
     tryPlaceMarker(120)
@@ -5830,13 +5882,10 @@ local function getTuckedImprovementY(baseY)
 end
 
 local function finalizeStackCounter(counter, baseGuid, targetPos, targetRot)
-    -- TEMPORARY: Disable finalizeStackCounter for debugging TTS hang
     if not counter then
-        stackLog("finalizeStackCounter received nil counter [TEMPORARY]")
+        stackLog("finalizeStackCounter received nil counter")
         return
     end
-    stackLog("[TEMPORARY] finalizeStackCounter disabled for debugging TTS hang")
-    return
 
     counter.setName("stack level")
     counter.setLock(false)
@@ -5895,10 +5944,7 @@ function removeStackCounterForBase(baseObj, removeMarkers)
 end
 
 function handleBaseCardCounter(baseObj, ownerLabel, placeMarker)
-    -- TEMPORARY: Disable marker/counter placement for debugging TTS hang
     if not baseObj or baseObj.type ~= "Card" or not safeHasTag(baseObj, "base") then return end
-    stackLog("[TEMPORARY] handleBaseCardCounter disabled for debugging TTS hang")
-    return
 
     if placeMarker == nil then placeMarker = true end
 
