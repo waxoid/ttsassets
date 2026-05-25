@@ -45,6 +45,26 @@ local function makeVec3(x, y, z)
     }
 end
 
+local function getPrimaryHandPositionForPlayer(p)
+    if not p or not p.getHandTransform then return nil end
+
+    -- In most setups each seated player has one primary hand transform.
+    for i = 1, 4 do
+        local ok, hand = pcall(function() return p.getHandTransform(i) end)
+        if ok and hand and hand.position then
+            return hand.position
+        end
+    end
+
+    for i = 0, 1 do
+        local ok, hand = pcall(function() return p.getHandTransform(i) end)
+        if ok and hand and hand.position then
+            return hand.position
+        end
+    end
+
+    return nil
+end
 
 -- ============================================================
 -- SECTION: Game State & Infrastructure
@@ -524,7 +544,6 @@ local function getObjectPlanarSize(obj)
     return sx, sz
 end
 
-local getPrimaryHandPositionForPlayer
 local safeGetPosition
 
 local function normalizePlanar(dx, dz)
@@ -1035,27 +1054,6 @@ local function rgbToHex(color)
     local g = math.floor((clamp01(color[2] or color.g or 1) * 255) + 0.5)
     local b = math.floor((clamp01(color[3] or color.b or 1) * 255) + 0.5)
     return string.format("#%02X%02X%02X", r, g, b)
-end
-
-getPrimaryHandPositionForPlayer = function(p)
-    if not p or not p.getHandTransform then return nil end
-
-    -- In most setups each seated player has one primary hand transform.
-    for i = 1, 4 do
-        local ok, hand = pcall(function() return p.getHandTransform(i) end)
-        if ok and hand and hand.position then
-            return hand.position
-        end
-    end
-
-    for i = 0, 1 do
-        local ok, hand = pcall(function() return p.getHandTransform(i) end)
-        if ok and hand and hand.position then
-            return hand.position
-        end
-    end
-
-    return nil
 end
 
 local function rebuildHudPlayerCache()
