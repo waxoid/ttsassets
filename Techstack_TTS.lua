@@ -257,7 +257,10 @@ local function getDirectMarkerTint(ownerLabel)
 end
 
 local function spawnDirectMarkerForOwner(ownerLabel, targetPos, markerName, markerNotes, extraTag)
+    -- TEMPORARY: Disable marker placement for debugging TTS hang
     if not targetPos then return false end
+    stackLog("[TEMPORARY] spawnDirectMarkerForOwner disabled for debugging TTS hang")
+    return false
 
     local okSpawn, spawnErr = pcall(function()
         spawnObject({
@@ -5722,7 +5725,9 @@ local function isCardSnappedForAutoMarker(cardObj)
 end
 
 function tryPlaceMarkerOnProjectCard(projectObj, ownerLabel, attemptsLeft)
+    -- TEMPORARY: Disable marker placement for debugging TTS hang
     if not projectObj or not ownerLabel then return end
+    attemptsLeft = 1 -- TEMPORARY: force attemptsLeft = 1 to suppress recursion
 
     -- Guard: must be a project card that is NOT an improvement
     if safeGetType(projectObj) ~= "Card" or not safeHasTag(projectObj, "project") or safeHasTag(projectObj, "improvement") then
@@ -5768,6 +5773,8 @@ function tryPlaceMarkerOnProjectCard(projectObj, ownerLabel, attemptsLeft)
     end
 
     -- Condition (c): Check if card has snap points
+    -- TEMPORARY: Disable marker placement for debugging TTS hang
+    return
     local okSnap, snapPoints = pcall(function()
         if projectObj.getSnapPoints then
             return projectObj:getSnapPoints()
@@ -5823,10 +5830,13 @@ local function getTuckedImprovementY(baseY)
 end
 
 local function finalizeStackCounter(counter, baseGuid, targetPos, targetRot)
+    -- TEMPORARY: Disable finalizeStackCounter for debugging TTS hang
     if not counter then
-        stackLog("finalizeStackCounter received nil counter")
+        stackLog("finalizeStackCounter received nil counter [TEMPORARY]")
         return
     end
+    stackLog("[TEMPORARY] finalizeStackCounter disabled for debugging TTS hang")
+    return
 
     counter.setName("stack level")
     counter.setLock(false)
@@ -5885,7 +5895,10 @@ function removeStackCounterForBase(baseObj, removeMarkers)
 end
 
 function handleBaseCardCounter(baseObj, ownerLabel, placeMarker)
+    -- TEMPORARY: Disable marker/counter placement for debugging TTS hang
     if not baseObj or baseObj.type ~= "Card" or not safeHasTag(baseObj, "base") then return end
+    stackLog("[TEMPORARY] handleBaseCardCounter disabled for debugging TTS hang")
+    return
 
     if placeMarker == nil then placeMarker = true end
 
