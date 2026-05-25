@@ -1,4 +1,10 @@
 --[[ Lua code. See documentation: https://api.tabletopsimulator.com/ --]]
+-- Global script handlers for the TTS implementation of board game Techstack (playtesting)
+
+-- ============================================================
+-- SECTION: Utility/Helper Routines
+-- support functions, no game state dependencies
+-- ============================================================
 
 EDIT_MODE = false -- Toggle in chat with: editmode (also supports !editmode and /editmode)
 
@@ -8,53 +14,27 @@ local function debugPrint(msg)
     end
 end
 
+local function marketLog(msg)
+    if MARKET_DEBUG then
+        debugPrint("[MARKET] " .. msg)
+    end
+end
+
+local function stackLog(msg)
+    if STACK_DEBUG then
+        debugPrint("[STACK] " .. msg)
+    end
+end
+
+function colorChangeLog(message)
+    if not EDIT_MODE then return end
+    print("[COLOR_CHANGE] " .. tostring(message))
+end
+
 local function debugBroadcastToColor(message, player_color)
     if EDIT_MODE then
         broadcastToColor(message, player_color)
     end
-end
-
--- ***** for initial import – import cards, save state, check GUID, ENTER GUID here, SAVE & PLAY
---       ...then the deck will have a context menu for tagging
-
-PROJECT_DECK_GUID = "xxxxxx"
-INDUSTRY_DECK_GUID = "zzzzzz"
-DEVELOPER_DECK_GUID = "d70f0d" -- needed for dev deck functionality, also enables tag menu
-
-local SNAP_PATTERN_GUIDS = {
-    industrymarker = "06acdd",
-    industryaction = "2cfd00",
-    base = "8acc6e",
-    upgradeable = "e5d0ed",
-    action = "05eacd",
-    actionhigh = "f20954",
-    newplatform = "b12320"
-}
-
-local SNAP_PATTERN_COMBINATIONS = {
-    newplataction = {"actionhigh", "newplatform"}
-}
-
-local SNAP_PATTERN_ORDER = {
-    "industrymarker",
-    "industryaction",
-    "base",
-    "upgradeable",
-    "action",
-    "actionhigh",
-    "newplatform",
-    "newplataction"
-}
-
-local function normalizeColor(value, fallback)
-    local fb = fallback or {r = 1, g = 1, b = 1}
-    local r = value and (value.r or value[1]) or fb.r
-    local g = value and (value.g or value[2]) or fb.g
-    local b = value and (value.b or value[3]) or fb.b
-    if r == nil then r = fb.r end
-    if g == nil then g = fb.g end
-    if b == nil then b = fb.b end
-    return {r = r, g = g, b = b}
 end
 
 local function makeVec3(x, y, z)
@@ -65,27 +45,11 @@ local function makeVec3(x, y, z)
     }
 end
 
--- Asset groups for each of the 4 player positions.
--- 1st GUID = main player board, 2nd GUID = tracking tile, 3rd GUID = "A" VC card.
--- Remaining GUIDs are default starting cards/tokens for that seat.
-local PLAYER_POSITION_ASSET_GROUPS = {
-    {
-        label = "south",
-        guids = {"cf7ce4", "a76793", "9f1d38", "cbcc83", "09aa49", "8759b3", "88f03c", "ae079a", "131c5e", "89c959", "3d02e3", "455985"},
-    },
-    {
-        label = "west",
-        guids = {"a2b1bb", "629342", "b884c0", "436366", "83b114", "fd7cc7", "85add2", "9155e1", "5b5e31", "4b5411", "cf756d", "b4ad63"},
-    },
-    {
-        label = "north",
-        guids = {"169a56", "bec6ed", "85e5db", "f9c9a5", "d152e9", "481840", "ba5da7", "2cf636", "ad6628", "3e1b69", "6205f3", "0edcd3"},
-    },
-    {
-        label = "east",
-        guids = {"d132c0", "755ddf", "2a342f", "679185", "9923f5", "847e5f", "37093b", "406064", "4ed232", "3f15d3", "ce53f7", "7eda46"},
-    },
-}
+
+-- ============================================================
+-- SECTION: Game State & Infrastructure
+-- game state, game load, event dispatch, player seats
+-- ============================================================
 
 local MARKER_MARBLE_OWNER_BY_GUID = {
     ["455985"] = "Blue",
@@ -116,6 +80,7 @@ local MORALE_TRACK_START_POSITIONS = {
 }
 
 -- Market row configuration
+DEVELOPER_DECK_GUID = "d70f0d" -- needed for dev deck functionality, but NOTE also enables tag menu (rebuild utility)
 TECH_DECK_GUID = "90412a"
 ANALYST_DECK_GUID = "207668"
 STARTER_PROJECT_DECK_GUID = "cc6ab0"
@@ -206,6 +171,195 @@ local ROUND3_BASES_COLLECT_DEST = {x = -39.40, y = 1.17, z = 39.69}
 local ROUND3_BASE_ROW_1_GUIDS = {"8acc6e", "0fd6f3", "96b59c", "997214", "7a3216"}
 local ROUND3_BASE_ROW_2_GUIDS = {"a07e1f", "68d6d6", "c39848", "4a3853", "57c844"}
 
+function normalizePlayerNameKey(value)
+    return string.lower(tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
+function getStartedColorForPlayerName(playerName)
+    local wanted = normalizePlayerNameKey(playerName)
+    if wanted == "" then return nil end
+
+    for color, startedName in pairs(STARTED_PLAYER_NAME_BY_COLOR or {}) do
+        if normalizePlayerNameKey(startedName) == wanted then
+            return normalizePlayerColorLabel(color)
+        end
+    end
+
+    return nil
+end
+
+function isGameStartedWithRoster()
+    return STARTED_PLAYER_COLORS and #STARTED_PLAYER_COLORS > 0
+end
+
+function findSeatedPlayerByName(playerName)
+    local wanted = normalizePlayerNameKey(playerName)
+    if wanted == "" then return nil end
+
+    for _, color in ipairs(Player.getColors()) do
+        local p = getPlayerByColorSafe(color)
+        if p and p.seated and normalizePlayerNameKey(p.steam_name) == wanted then
+            return p
+        end
+    end
+    return nil
+end
+
+function setStartedPlayersFromState(colors, namesByColor)
+    local ordered = {}
+    local seen = {}
+
+    for _, rawColor in ipairs(colors or {}) do
+        local color = normalizePlayerColorLabel(rawColor)
+        if color and not seen[color] and color ~= "Neutral" then
+            table.insert(ordered, color)
+            seen[color] = true
+        end
+    end
+
+    STARTED_PLAYER_COLORS = ordered
+    STARTED_PLAYER_NAME_BY_COLOR = {}
+
+    for color, rawName in pairs(namesByColor or {}) do
+        local normalizedColor = normalizePlayerColorLabel(color)
+        if normalizedColor and normalizedColor ~= "Neutral" then
+            STARTED_PLAYER_NAME_BY_COLOR[normalizedColor] = tostring(rawName or normalizedColor)
+        end
+    end
+end
+
+function getOrderedColorsFromSet(colorSet)
+    local ordered = {}
+    local seen = {}
+
+    for _, color in ipairs(Player.getColors()) do
+        if colorSet[color] and not seen[color] then
+            table.insert(ordered, color)
+            seen[color] = true
+        end
+    end
+
+    for color, _ in pairs(colorSet) do
+        if not seen[color] then
+            table.insert(ordered, color)
+            seen[color] = true
+        end
+    end
+
+    return ordered
+end
+
+function isHostColor(player_color)
+    if not player_color then return false end
+    local p = getPlayerByColorSafe(player_color)
+    return p and p.host == true
+end
+
+-- 6 locked low-opacity square tile GUIDs that represent card market positions (left to right)
+local MARKET_PLACEHOLDER_GUIDS = {
+    "56d87a",
+    "422e82",
+    "2b56d1",
+    "d570bb",
+    "5a43b8",
+    "ac51d9",
+}
+
+local BOARD_CAMERA_BY_PRESET = {
+    ["1"] = {guid = "cf7ce4", yaw = 0},
+    ["2"] = {guid = "a2b1bb", yaw = 90},
+    ["3"] = {guid = "169a56", yaw = 180},
+    ["4"] = {guid = "d132c0", yaw = 270},
+}
+
+local function getCameraPresetLookAt(player_color, presetName)
+    local preset = string.lower(tostring(presetName or ""))
+    local TOP_DOWN_PITCH = 90
+
+    local boardSpec = BOARD_CAMERA_BY_PRESET[preset]
+    if boardSpec then
+        local boardObj = getObjectFromGUID(boardSpec.guid)
+        if not boardObj then
+            return nil
+        end
+
+        local bagPos = boardObj.getPosition()
+        local boardPitch = (82 + TOP_DOWN_PITCH) / 2
+        return {
+            position = {x = bagPos.x, y = bagPos.y + 0.5, z = bagPos.z},
+            pitch = boardPitch,
+            yaw = boardSpec.yaw,
+            distance = 18,
+        }
+    end
+
+    local function getMarketLookAt()
+        local devCorner = getObjectFromGUID(TALENT_ROW_PLACEHOLDER_GUIDS[1])
+        local marketCorner = getObjectFromGUID(MARKET_PLACEHOLDER_GUIDS[6])
+        if devCorner and marketCorner then
+            local devPos = devCorner.getPosition()
+            local marketPos = marketCorner.getPosition()
+            local centerX = (devPos.x + marketPos.x) / 2
+            local centerY = (devPos.y + marketPos.y) / 2
+            local centerZ = (devPos.z + marketPos.z) / 2
+            local marketPitch = (65 + TOP_DOWN_PITCH) / 2
+
+            return {
+                position = {x = centerX, y = centerY + 0.25, z = centerZ},
+                pitch = marketPitch,
+                yaw = 0,
+                distance = 24,
+            }
+        end
+        return nil
+    end
+
+    if preset == "stack" then
+        local stackPitch = (82 + TOP_DOWN_PITCH) / 2
+        return {
+            position = {
+                x = STACK_TOPLEFT_POSITION.x + (STACK_LAYOUT_DX * 3.5),
+                y = STACK_TOPLEFT_POSITION.y,
+                z = STACK_TOPLEFT_POSITION.z - 2.2,
+            },
+            pitch = stackPitch,
+            yaw = 0,
+            distance = 24,
+        }
+    end
+
+    if preset == "market" then
+        return getMarketLookAt()
+    end
+
+    return nil
+end
+
+local function focusCameraPreset(player_color, presetName)
+    if not player_color then return end
+    local p = Player[player_color]
+    if not p then return end
+
+    local lookAt = getCameraPresetLookAt(player_color, presetName)
+    if not lookAt then
+        broadcastToColor("Unknown camera preset: " .. tostring(presetName), player_color)
+        broadcastToColor("Try: cam 1, cam 2, cam 3, cam 4, cam stack, cam market", player_color)
+        return
+    end
+
+    lookAt.smooth = false
+
+    pcall(function()
+        p.lookAt(lookAt)
+    end)
+end
+
+
+-- ============================================================
+-- SECTION: Stack & Marker Placement
+-- Spawn markers and auto-spawn on base and stack placement
+-- ============================================================
+
 local PLAYER_TINTS = {
     White  = {1, 1, 1},
     Brown  = {0.443, 0.231, 0.09},
@@ -240,6 +394,55 @@ end
 
 local function useDirectMarkerSupply()
     return true
+end
+
+local function normalizeColor(value, fallback)
+    local fb = fallback or {r = 1, g = 1, b = 1}
+    local r = value and (value.r or value[1]) or fb.r
+    local g = value and (value.g or value[2]) or fb.g
+    local b = value and (value.b or value[3]) or fb.b
+    if r == nil then r = fb.r end
+    if g == nil then g = fb.g end
+    if b == nil then b = fb.b end
+    return {r = r, g = g, b = b}
+end
+
+function normalizePlayerColorLabel(value)
+    local wanted = string.lower(tostring(value or ""))
+    if wanted == "" then return nil end
+    if wanted == "neutral" then return "Neutral" end
+    if wanted == "gray" then wanted = "grey" end
+
+    for color, _ in pairs(PLAYER_TINTS) do
+        if string.lower(color) == wanted then
+            return color
+        end
+    end
+
+    return nil
+end
+
+function normalizeSeatColorKey(value)
+    local normalized = normalizePlayerColorLabel(value)
+    if not normalized then return tostring(value or "") end
+    if normalized == "Grey" then return "Gray" end
+    return normalized
+end
+
+function getPlayerByColorSafe(color)
+    local key = normalizeSeatColorKey(color)
+    if key == "" then return nil end
+
+    local ok, p = pcall(function() return Player[key] end)
+    if ok then return p end
+
+    -- Fallback alias support if this table uses the alternate spelling.
+    if key == "Gray" then
+        local okGrey, pGrey = pcall(function() return Player["Grey"] end)
+        if okGrey then return pGrey end
+    end
+
+    return nil
 end
 
 local function getDirectMarkerTint(ownerLabel)
@@ -353,6 +556,29 @@ local function isMarkerNearPosition(targetPos, radius)
     end
     return false
 end
+
+-- Asset groups for each of the 4 player positions.
+-- 1st GUID = main player board, 2nd GUID = tracking tile, 3rd GUID = "A" VC card.
+-- (NOTE these guid mappings are used for calculating marker creation zones, detecting player board proximity)
+-- Remaining GUIDs are default starting cards/tokens for that seat.
+local PLAYER_POSITION_ASSET_GROUPS = {
+    {
+        label = "south",
+        guids = {"cf7ce4", "a76793", "9f1d38", "cbcc83", "09aa49", "8759b3", "88f03c", "ae079a", "131c5e", "89c959", "3d02e3", "455985"},
+    },
+    {
+        label = "west",
+        guids = {"a2b1bb", "629342", "b884c0", "436366", "83b114", "fd7cc7", "85add2", "9155e1", "5b5e31", "4b5411", "cf756d", "b4ad63"},
+    },
+    {
+        label = "north",
+        guids = {"169a56", "bec6ed", "85e5db", "f9c9a5", "d152e9", "481840", "ba5da7", "2cf636", "ad6628", "3e1b69", "6205f3", "0edcd3"},
+    },
+    {
+        label = "east",
+        guids = {"d132c0", "755ddf", "2a342f", "679185", "9923f5", "847e5f", "37093b", "406064", "4ed232", "3f15d3", "ce53f7", "7eda46"},
+    },
+}
 
 local function getSeatAssetGroupForPlayerColor(playerColor)
     local p = getPlayerByColorSafe(playerColor)
@@ -598,49 +824,6 @@ function setupMarkerMarbleButtons(removeUnusedNeutralMarble)
     end
 end
 
-function normalizePlayerColorLabel(value)
-    local wanted = string.lower(tostring(value or ""))
-    if wanted == "" then return nil end
-    if wanted == "neutral" then return "Neutral" end
-    if wanted == "gray" then wanted = "grey" end
-
-    for color, _ in pairs(PLAYER_TINTS) do
-        if string.lower(color) == wanted then
-            return color
-        end
-    end
-
-    return nil
-end
-
-function normalizeSeatColorKey(value)
-    local normalized = normalizePlayerColorLabel(value)
-    if not normalized then return tostring(value or "") end
-    if normalized == "Grey" then return "Gray" end
-    return normalized
-end
-
-function getPlayerByColorSafe(color)
-    local key = normalizeSeatColorKey(color)
-    if key == "" then return nil end
-
-    local ok, p = pcall(function() return Player[key] end)
-    if ok then return p end
-
-    -- Fallback alias support if this table uses the alternate spelling.
-    if key == "Gray" then
-        local okGrey, pGrey = pcall(function() return Player["Grey"] end)
-        if okGrey then return pGrey end
-    end
-
-    return nil
-end
-
-function colorChangeLog(message)
-    if not EDIT_MODE then return end
-    print("[COLOR_CHANGE] " .. tostring(message))
-end
-
 function hasUsableHandTransformForPlayer(p)
     if not p or not p.getHandTransform then return false end
 
@@ -654,89 +837,11 @@ function hasUsableHandTransformForPlayer(p)
     return false
 end
 
-function normalizePlayerNameKey(value)
-    return string.lower(tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", ""))
-end
 
-function getStartedColorForPlayerName(playerName)
-    local wanted = normalizePlayerNameKey(playerName)
-    if wanted == "" then return nil end
-
-    for color, startedName in pairs(STARTED_PLAYER_NAME_BY_COLOR or {}) do
-        if normalizePlayerNameKey(startedName) == wanted then
-            return normalizePlayerColorLabel(color)
-        end
-    end
-
-    return nil
-end
-
-function isGameStartedWithRoster()
-    return STARTED_PLAYER_COLORS and #STARTED_PLAYER_COLORS > 0
-end
-
-function findSeatedPlayerByName(playerName)
-    local wanted = normalizePlayerNameKey(playerName)
-    if wanted == "" then return nil end
-
-    for _, color in ipairs(Player.getColors()) do
-        local p = getPlayerByColorSafe(color)
-        if p and p.seated and normalizePlayerNameKey(p.steam_name) == wanted then
-            return p
-        end
-    end
-    return nil
-end
-
-function setStartedPlayersFromState(colors, namesByColor)
-    local ordered = {}
-    local seen = {}
-
-    for _, rawColor in ipairs(colors or {}) do
-        local color = normalizePlayerColorLabel(rawColor)
-        if color and not seen[color] and color ~= "Neutral" then
-            table.insert(ordered, color)
-            seen[color] = true
-        end
-    end
-
-    STARTED_PLAYER_COLORS = ordered
-    STARTED_PLAYER_NAME_BY_COLOR = {}
-
-    for color, rawName in pairs(namesByColor or {}) do
-        local normalizedColor = normalizePlayerColorLabel(color)
-        if normalizedColor and normalizedColor ~= "Neutral" then
-            STARTED_PLAYER_NAME_BY_COLOR[normalizedColor] = tostring(rawName or normalizedColor)
-        end
-    end
-end
-
-function getOrderedColorsFromSet(colorSet)
-    local ordered = {}
-    local seen = {}
-
-    for _, color in ipairs(Player.getColors()) do
-        if colorSet[color] and not seen[color] then
-            table.insert(ordered, color)
-            seen[color] = true
-        end
-    end
-
-    for color, _ in pairs(colorSet) do
-        if not seen[color] then
-            table.insert(ordered, color)
-            seen[color] = true
-        end
-    end
-
-    return ordered
-end
-
-function isHostColor(player_color)
-    if not player_color then return false end
-    local p = getPlayerByColorSafe(player_color)
-    return p and p.host == true
-end
+-- ============================================================
+-- SECTION: Card Handling
+-- card rows, discard, market, placement, drop/pickup events
+-- ============================================================
 
 STACK_MAT_GUID = "c2221a"
 STACK_COUNTER_TEMPLATE_GUIDS = {"131c5e", "cf756d", "ad6628", "ce53f7"}
@@ -814,104 +919,6 @@ local function cloneStackCounterFromTemplate(template, targetPos, targetRot)
     return clonedOrErr, nil
 end
 
--- Put your 6 locked low-opacity square GUIDs here (left to right)
-local MARKET_PLACEHOLDER_GUIDS = {
-    "56d87a",
-    "422e82",
-    "2b56d1",
-    "d570bb",
-    "5a43b8",
-    "ac51d9",
-}
-
-local BOARD_CAMERA_BY_PRESET = {
-    ["1"] = {guid = "cf7ce4", yaw = 0},
-    ["2"] = {guid = "a2b1bb", yaw = 90},
-    ["3"] = {guid = "169a56", yaw = 180},
-    ["4"] = {guid = "d132c0", yaw = 270},
-}
-
-local function getCameraPresetLookAt(player_color, presetName)
-    local preset = string.lower(tostring(presetName or ""))
-    local TOP_DOWN_PITCH = 90
-
-    local boardSpec = BOARD_CAMERA_BY_PRESET[preset]
-    if boardSpec then
-        local boardObj = getObjectFromGUID(boardSpec.guid)
-        if not boardObj then
-            return nil
-        end
-
-        local bagPos = boardObj.getPosition()
-        local boardPitch = (82 + TOP_DOWN_PITCH) / 2
-        return {
-            position = {x = bagPos.x, y = bagPos.y + 0.5, z = bagPos.z},
-            pitch = boardPitch,
-            yaw = boardSpec.yaw,
-            distance = 18,
-        }
-    end
-
-    local function getMarketLookAt()
-        local devCorner = getObjectFromGUID(TALENT_ROW_PLACEHOLDER_GUIDS[1])
-        local marketCorner = getObjectFromGUID(MARKET_PLACEHOLDER_GUIDS[6])
-        if devCorner and marketCorner then
-            local devPos = devCorner.getPosition()
-            local marketPos = marketCorner.getPosition()
-            local centerX = (devPos.x + marketPos.x) / 2
-            local centerY = (devPos.y + marketPos.y) / 2
-            local centerZ = (devPos.z + marketPos.z) / 2
-            local marketPitch = (65 + TOP_DOWN_PITCH) / 2
-
-            return {
-                position = {x = centerX, y = centerY + 0.25, z = centerZ},
-                pitch = marketPitch,
-                yaw = 0,
-                distance = 24,
-            }
-        end
-        return nil
-    end
-
-    if preset == "stack" then
-        local stackPitch = (82 + TOP_DOWN_PITCH) / 2
-        return {
-            position = {
-                x = STACK_TOPLEFT_POSITION.x + (STACK_LAYOUT_DX * 3.5),
-                y = STACK_TOPLEFT_POSITION.y,
-                z = STACK_TOPLEFT_POSITION.z - 2.2,
-            },
-            pitch = stackPitch,
-            yaw = 0,
-            distance = 24,
-        }
-    end
-
-    if preset == "market" then
-        return getMarketLookAt()
-    end
-
-    return nil
-end
-
-local function focusCameraPreset(player_color, presetName)
-    if not player_color then return end
-    local p = Player[player_color]
-    if not p then return end
-
-    local lookAt = getCameraPresetLookAt(player_color, presetName)
-    if not lookAt then
-        broadcastToColor("Unknown camera preset: " .. tostring(presetName), player_color)
-        broadcastToColor("Try: cam 1, cam 2, cam 3, cam 4, cam stack, cam market", player_color)
-        return
-    end
-
-    lookAt.smooth = false
-
-    pcall(function()
-        p.lookAt(lookAt)
-    end)
-end
 
 local MARKET_PLACEHOLDER_SLOT_BY_GUID = {}
 local MARKET_PICKUP_SLOT_BY_GUID = {}
@@ -922,18 +929,6 @@ local ROW_PLACEHOLDER_BUTTON_HEIGHT = 800  -- 50% of previous height (1600)
 local PROJECT_PICKUP_INTERSECTING_GUIDS_BY_GUID = {} -- [projectGuid] = { [otherGuid] = true }
 local PROJECT_CONVENIENCE_GROUP_MEMBER_BY_GUID = {} -- [cardGuid] = true once card participates in convenience layering
 local MARKET_DEBUG = true
-
-local function marketLog(msg)
-    if MARKET_DEBUG then
-        debugPrint("[MARKET] " .. msg)
-    end
-end
-
-local function stackLog(msg)
-    if STACK_DEBUG then
-        debugPrint("[STACK] " .. msg)
-    end
-end
 
 local function getDiscardTile()
     if not DISCARD_TILE_GUID or DISCARD_TILE_GUID == "" or DISCARD_TILE_GUID == "xxxxxx" then
@@ -2261,6 +2256,12 @@ local function isSnapPatternEligible(obj)
     return safeHasTag(obj, "tech") or safeHasTag(obj, "base")
 end
 
+
+-- ============================================================
+-- SECTION: Setup & Orchestration
+-- OnLoad, startGame, initialization flows
+-- ============================================================
+
 function toggleEditMode(player_color)
     EDIT_MODE = not EDIT_MODE
     print("EDIT_MODE = " .. tostring(EDIT_MODE))
@@ -2280,61 +2281,6 @@ function toggleEditMode(player_color)
     end
 end
 
-function setupAnalystCards()
-    local deck = getObjectFromGUID(ANALYST_DECK_GUID)
-    if not deck then
-        debugPrint("⚠️ Analyst deck not found: " .. tostring(ANALYST_DECK_GUID))
-        return
-    end
-
-    if deck.type == "Deck" then
-        deck.randomize()
-
-        Wait.frames(function()
-            local liveDeck = getObjectFromGUID(ANALYST_DECK_GUID)
-            if not liveDeck then
-                debugPrint("⚠️ Analyst deck missing after shuffle")
-                return
-            end
-
-            for _, pos in ipairs(ANALYST_CARD_POSITIONS) do
-                if liveDeck.type == "Deck" then
-                    pcall(function()
-                        liveDeck.takeObject({
-                            index = 0,
-                            position = pos,
-                            smooth = false,
-                            callback_function = function(card)
-                                if card then
-                                    pcall(function() card.addTag("analyst") end)
-                                end
-                            end
-                        })
-                    end)
-                elseif liveDeck.type == "Card" then
-                    pcall(function()
-                        liveDeck.setPositionSmooth(pos, false, true)
-                        liveDeck.addTag("analyst")
-                    end)
-                    break
-                end
-            end
-
-            Wait.frames(function()
-                local remainder = getObjectFromGUID(ANALYST_DECK_GUID)
-                if remainder then
-                    pcall(function() remainder.destruct() end)
-                end
-            end, 10)
-        end, 10)
-    elseif deck.type == "Card" then
-        deck.setPositionSmooth(ANALYST_CARD_POSITIONS[1], false, true)
-        deck.addTag("analyst")
-    else
-        debugPrint("⚠️ Analyst deck object has unsupported type: " .. tostring(deck.type))
-    end
-end
-
 --[[ The onLoad event is called after the game save finishes loading. --]]
 function onSave()
     local state = {
@@ -2347,6 +2293,12 @@ function onSave()
 end
 
 local attachFixImprovementsMenus
+
+function attachTagMenu(deck, tagString)
+    deck.addContextMenuItem("Tag as " .. tagString, function(player_color)
+        tagDeck(deck, tagString)
+    end)
+end
 
 function onLoad(saved_state)
     if saved_state and saved_state ~= "" then
@@ -2615,6 +2567,61 @@ function getActiveSeatedPlayers()
         )
     end
     return seated
+end
+
+function setupAnalystCards()
+    local deck = getObjectFromGUID(ANALYST_DECK_GUID)
+    if not deck then
+        debugPrint("⚠️ Analyst deck not found: " .. tostring(ANALYST_DECK_GUID))
+        return
+    end
+
+    if deck.type == "Deck" then
+        deck.randomize()
+
+        Wait.frames(function()
+            local liveDeck = getObjectFromGUID(ANALYST_DECK_GUID)
+            if not liveDeck then
+                debugPrint("⚠️ Analyst deck missing after shuffle")
+                return
+            end
+
+            for _, pos in ipairs(ANALYST_CARD_POSITIONS) do
+                if liveDeck.type == "Deck" then
+                    pcall(function()
+                        liveDeck.takeObject({
+                            index = 0,
+                            position = pos,
+                            smooth = false,
+                            callback_function = function(card)
+                                if card then
+                                    pcall(function() card.addTag("analyst") end)
+                                end
+                            end
+                        })
+                    end)
+                elseif liveDeck.type == "Card" then
+                    pcall(function()
+                        liveDeck.setPositionSmooth(pos, false, true)
+                        liveDeck.addTag("analyst")
+                    end)
+                    break
+                end
+            end
+
+            Wait.frames(function()
+                local remainder = getObjectFromGUID(ANALYST_DECK_GUID)
+                if remainder then
+                    pcall(function() remainder.destruct() end)
+                end
+            end, 10)
+        end, 10)
+    elseif deck.type == "Card" then
+        deck.setPositionSmooth(ANALYST_CARD_POSITIONS[1], false, true)
+        deck.addTag("analyst")
+    else
+        debugPrint("⚠️ Analyst deck object has unsupported type: " .. tostring(deck.type))
+    end
 end
 
 function dealOneCardToPlayer(sourceObj, playerColor)
@@ -3317,23 +3324,6 @@ function onObjectEnterZone(zone, obj)
             end
         end, 1)
     end
-end
-
-
-
-
--- debug messaging
-
---function onObjectEnterZone(zone, obj)
---    print("ZONE ENTER: " .. obj.getName() .. " -> " .. zone.getName())
---end
-
-function onObjectEnterContainer(container, obj)
-    -- print("CONTAINER ENTER: " .. obj.getName() .. " -> " .. container.type)
-end
-
-function onObjectLeaveContainer(container, obj)
-    -- Marker bag flow has been retired; marbles and direct spawning are used instead.
 end
 
 function onObjectLeaveZone(zone, obj)
@@ -5426,7 +5416,41 @@ end
 
 
 
--- Utility/development functions
+-- ============================================================
+-- SECTION: Development/Rebuild utilities
+-- utilities for mod rebuild and importing updated card decks
+-- ============================================================
+
+-- ***** for deck import – import cards, save state, check deck GUIDs, enter guids here, save & play
+--       ...then the deck will have a context menu for tagging
+-- TODO: simpler if the utility tagging menus are just always available on decks in edit mode, similar to snap-applying utilities
+PROJECT_DECK_GUID = "xxxxxx" -- only relevant for utility functions when importing a new version of the deck
+INDUSTRY_DECK_GUID = "zzzzzz" -- only relevant for utility functions when importing a new version of the deck
+
+local SNAP_PATTERN_GUIDS = {
+    industrymarker = "06acdd",
+    industryaction = "2cfd00",
+    base = "8acc6e",
+    upgradeable = "e5d0ed",
+    action = "05eacd",
+    actionhigh = "f20954",
+    newplatform = "b12320"
+}
+
+local SNAP_PATTERN_COMBINATIONS = {
+    newplataction = {"actionhigh", "newplatform"}
+}
+
+local SNAP_PATTERN_ORDER = {
+    "industrymarker",
+    "industryaction",
+    "base",
+    "upgradeable",
+    "action",
+    "actionhigh",
+    "newplatform",
+    "newplataction"
+}
 
 local function getStackGridRowCount()
     return ((STACK_ROWS - 1) * STACK_DZ_MULTIPLE) + 1
@@ -7062,12 +7086,6 @@ function fixImprovementsOnDeck(deckObj)
     Wait.frames(function()
         extractPlanAt(1)
     end, 1)
-end
-
-function attachTagMenu(deck, tagString)
-    deck.addContextMenuItem("Tag as " .. tagString, function(player_color)
-        tagDeck(deck, tagString)
-    end)
 end
 
 -- Attach "Fix improvements" context menu to a base Card or to a Deck containing a base card.
