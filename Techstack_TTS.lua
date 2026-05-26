@@ -1719,8 +1719,17 @@ local function handleDiscardDrop(obj)
     local targetRot = {x = 0, y = 90, z = 0}
     local yOffset = 0.35
 
-    -- Find the current discard deck (if any)
-    local discardDeck = getDiscardDeckObject()
+    -- Find the current discard deck (if any), excluding the card we're about to place.
+    -- Without this exclusion, the first card finds itself as the "existing" pile and
+    -- overwrites discardPos with its own (wrong) position instead of the tile center.
+    local droppedGuid = obj.getGUID()
+    local discardDeck = nil
+    for _, candidate in ipairs(getDiscardPileObjects()) do
+        if candidate.getGUID() ~= droppedGuid then
+            discardDeck = candidate
+            break
+        end
+    end
     local stackHeight = 0
     if discardDeck then
         local pos = discardDeck.getPosition()
@@ -4729,18 +4738,10 @@ function onObjectDrop(player_color, obj)
     if obj and not handledMainDeck and (objType == "Card" or objType == "Deck") and not safeHasTag(obj, "developer") then
         local guid = safeGetGuid(obj)
         if not guid then return end
-        print("discard: about to call handleDiscardDrop for guid=" .. tostring(guid) .. " type=" .. tostring(objType))
         Wait.frames(function()
             local liveObj = getObjectFromGUID(guid)
             if liveObj then
-                print("discard: handleDiscardDrop entry for guid=" .. tostring(guid))
                 handleDiscardDrop(liveObj)
-            else
-                local discardObj = getDiscardDeckObject()
-                if discardObj then
-                    print("discard: handleDiscardDrop fallback for discard deck object")
-                    handleDiscardDrop(discardObj)
-                end
             end
         end, 1)
     end
