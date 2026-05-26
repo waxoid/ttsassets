@@ -4561,15 +4561,8 @@ function onObjectDrop(player_color, obj)
                     if liveObj then
                         -- Suppress marker placement if card was just dragged from deck or hand
                         local suppressMarker = false
-                        -- Suppress if card was just in a deck (i.e., dropped from a deck)
-                        if obj and obj.type == "Card" and obj.held_by_color == nil then
-                            local parent = obj.getContainer and obj.getContainer() or nil
-                            if parent and (parent.type == "Deck" or parent.type == "Bag") then
-                                suppressMarker = true
-                            end
-                        end
                         -- Suppress if card was just in a hand zone
-                        if HAND_REARRANGE_GUIDS[guid] or objectIsCurrentlyInAnyHandZone(obj) then
+                        if HAND_REARRANGE_GUIDS[guid] or objectIsCurrentlyInAnyHandZone(liveObj) then
                             suppressMarker = true
                         end
                         if delay == 25 and not suppressMarker then
