@@ -3906,7 +3906,6 @@ local function findProjectConvenienceTarget(droppedProject, player_color)
     local bestAlong = nil
 
     for _, other in ipairs(getAllObjects()) do
-        ::continue::
         if other and other.type == "Card" then
             -- Only allow if both cards are in hand landscape orientation for this player
             if not (isCardInHandLandscapeOrientation(droppedProject, player_color) and isCardInHandLandscapeOrientation(other, player_color)) then
@@ -3973,6 +3972,7 @@ local function findProjectConvenienceTarget(droppedProject, player_color)
                 end
             end
         end
+        ::continue::
     end
 
     if best then
@@ -6237,11 +6237,6 @@ function onChat(message, player)
 
     if msg == "createstack" or msg == "!createstack" or msg == "/createstack" then
         CreateStackGrid(player.color)
-        return false
-    end
-
-    if msg == "rebuildplayerstate" or msg == "!rebuildplayerstate" or msg == "/rebuildplayerstate" then
-        broadcastToColor("rebuildplayerstate is retired (marker bag workflow removed)", player and player.color or "White")
         return false
     end
 
