@@ -1401,13 +1401,15 @@ function getSnapIndexForPosition(baseCard, worldPos, threshold)
                 wp = baseCard.positionToWorld(sp.position)
             end)
             if okW and wp then
-                table.insert(snapData, { localX = sp.position.x or 0, worldPos = wp })
+                table.insert(snapData, { worldPos = wp })
             end
         end
     end
     if #snapData == 0 then return nil end
 
-    table.sort(snapData, function(a, b) return a.localX < b.localX end)
+    -- Sort by world X ascending (left to right), matching getLeftmostSnapWorldPosition.
+    -- Local X cannot be used here: for Y=180 cards the local X axis is world-X-reversed.
+    table.sort(snapData, function(a, b) return (a.worldPos.x or 0) < (b.worldPos.x or 0) end)
 
     local bestIndex, bestD2
     for i, sd in ipairs(snapData) do
