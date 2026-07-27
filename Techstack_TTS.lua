@@ -1385,6 +1385,75 @@ function getStackMarkerOwnerGuid(obj)
     return string.match(obj.getGMNotes() or "", "^base_marker_guid:(%w+)$")
 end
 
+-- Returns the 1-based index (sorted by card-local X, ascending) of the snap point
+-- on baseCard closest to worldPos, or nil if none is within the threshold.
+function getSnapIndexForPosition(baseCard, worldPos, threshold)
+    if not baseCard or not worldPos then return nil end
+    local th = threshold or 0.6
+    local okPoints, points = pcall(function() return baseCard.getSnapPoints() or {} end)
+    if not okPoints or type(points) ~= "table" or #points == 0 then return nil end
+
+    local snapData = {}
+    for _, sp in ipairs(points) do
+        if sp and sp.position then
+            local wp
+            local okW = pcall(function()
+                wp = baseCard.positionToWorld(sp.position)
+            end)
+            if okW and wp then
+                table.insert(snapData, { localX = sp.position.x or 0, worldPos = wp })
+            end
+        end
+    end
+    if #snapData == 0 then return nil end
+
+    table.sort(snapData, function(a, b) return a.localX < b.localX end)
+
+    local bestIndex, bestD2
+    for i, sd in ipairs(snapData) do
+        local wp = sd.worldPos
+        local dx = (wp.x or 0) - (worldPos.x or 0)
+        local dz = (wp.z or 0) - (worldPos.z or 0)
+        local d2 = dx * dx + dz * dz
+        if not bestD2 or d2 < bestD2 then
+            bestD2 = d2
+            bestIndex = i
+        end
+    end
+
+    if not bestIndex or not bestD2 then return nil end
+    if math.sqrt(bestD2) > th then return nil end
+    return bestIndex
+end
+
+-- Finds the stack counter object associated with baseGuid, or nil.
+function findCounterForBase(baseGuid)
+    if not baseGuid then return nil end
+    for _, o in ipairs(getAllObjects()) do
+        if o and safeGetType(o) ~= "Card" and safeHasTag(o, STACK_COUNTER_TAG)
+                and getStackCounterOwnerGuid(o) == baseGuid then
+            return o
+        end
+    end
+    return nil
+end
+
+-- Increments (or decrements) the stack counter for baseGuid by delta. Silent on failure.
+function incrementBaseCardCounter(baseGuid, delta)
+    if not baseGuid or not delta or delta == 0 then return end
+    local counter = findCounterForBase(baseGuid)
+    if not counter then return end
+    local okGet, current = pcall(function() return counter.getValue() end)
+    if not okGet or type(current) ~= "number" then return end
+    local newValue = math.floor(current) + delta
+    if newValue < 1 then newValue = 1 end
+    pcall(function() counter.setValue(newValue) end)
+    stackLog("counter update: baseGuid=" .. tostring(baseGuid)
+        .. " delta=" .. tostring(delta)
+        .. " old=" .. tostring(current)
+        .. " new=" .. tostring(newValue))
+end
+
 PLAYER_TINTS = {
     White  = {1, 1, 1},
     Brown  = {0.443, 0.231, 0.09},
@@ -2647,6 +2716,10 @@ PROJECT_PICKUP_INTERSECTING_GUIDS_BY_GUID = {} -- [projectGuid] = { [otherGuid] 
 PROJECT_CONVENIENCE_GROUP_MEMBER_BY_GUID = {} -- [cardGuid] = true once card participates in convenience layering
 BASE_PICKUP_STATE_BY_GUID = {}
 -- [baseGuid] = { pickupPos, counterGuid, markerGuid, markerOwner } — set on pickup, cleared on drop
+MARKER_PICKUP_SNAP_STATE_BY_GUID = {}
+-- [markerGuid] = { baseGuid, snapIndex } — snap index (local-X-sorted) recorded when base marker lifted
+IMPROVEMENT_PICKUP_BASE_BY_GUID = {}
+-- [improvGuid] = baseGuid or nil — records which base card improvement was near when picked up
 MARKET_DEBUG = true
 
 -- (local helper) returns the tech discard tile object
@@ -5273,6 +5346,28 @@ function onObjectDrop(player_color, obj)
         return
     end
 
+    -- Auto-update base card counter when the player moves its marker to a new snap point.
+    if droppedGuid and safeHasTag(obj, STACK_BASE_MARKER_TAG) then
+        local pickupState = MARKER_PICKUP_SNAP_STATE_BY_GUID[droppedGuid]
+        MARKER_PICKUP_SNAP_STATE_BY_GUID[droppedGuid] = nil
+        if pickupState then
+            local baseCard = getObjectFromGUID(pickupState.baseGuid)
+            if baseCard then
+                local pos = safeGetPosition(obj)
+                local dropIndex = pos and getSnapIndexForPosition(baseCard, pos)
+                if dropIndex and dropIndex ~= pickupState.snapIndex then
+                    local delta = dropIndex - pickupState.snapIndex
+                    stackLog("marker drop: guid=" .. tostring(droppedGuid)
+                        .. " baseGuid=" .. tostring(pickupState.baseGuid)
+                        .. " pickupIndex=" .. tostring(pickupState.snapIndex)
+                        .. " dropIndex=" .. tostring(dropIndex)
+                        .. " delta=" .. tostring(delta))
+                    incrementBaseCardCounter(pickupState.baseGuid, delta)
+                end
+            end
+        end
+    end
+
     -- Disabled: do not nudge money chips on drop during play (only onLoad).
     -- if isPossibleMoneyChipObject(obj) then
     --     queueMoneyChipRefreshAfterSettle(obj, {1, 6, 20})
@@ -5758,6 +5853,15 @@ function handleImprovementDrop(obj)
         if not liveBase then
             stackLog("LAYOUT ABORT: base gone guid=" .. baseGuid)
             return
+        end
+
+        -- Increment counter when improvement is newly dropped on this base (not just re-arranged).
+        local priorBase = IMPROVEMENT_PICKUP_BASE_BY_GUID[objGuid]
+        IMPROVEMENT_PICKUP_BASE_BY_GUID[objGuid] = nil
+        if priorBase ~= baseGuid then
+            local liveImprov = getObjectFromGUID(objGuid)
+            local amount = (liveImprov and safeHasTag(liveImprov, "plustwo")) and 2 or 1
+            incrementBaseCardCounter(baseGuid, amount)
         end
 
         local liveBasePos = liveBase.getPosition()
@@ -7472,6 +7576,30 @@ function onObjectPickUp(player_color, obj)
 
     if pickupType == "Card" and safeHasTag(obj, "improvement") then
         if pickupGuid then STACK_TUCKED_IMPROVEMENT_GUIDS[pickupGuid] = nil end
+        -- Track which base card (if any) this improvement was near at pickup time,
+        -- so handleImprovementDrop can skip incrementing the counter on a same-base re-drop.
+        if pickupGuid then
+            local nearBase = findBaseCardNearObject(obj)
+            IMPROVEMENT_PICKUP_BASE_BY_GUID[pickupGuid] = nearBase and safeGetGuid(nearBase) or nil
+        end
+    end
+
+    -- Record snap-point index for auto-placed base markers so the counter can be
+    -- updated automatically when the player moves the marker to a new snap point.
+    if pickupGuid and safeHasTag(obj, STACK_BASE_MARKER_TAG) then
+        local baseGuid = getStackMarkerOwnerGuid(obj)
+        if baseGuid then
+            local baseCard = getObjectFromGUID(baseGuid)
+            if baseCard then
+                local pos = safeGetPosition(obj)
+                local snapIndex = pos and getSnapIndexForPosition(baseCard, pos)
+                MARKER_PICKUP_SNAP_STATE_BY_GUID[pickupGuid] = snapIndex
+                    and { baseGuid = baseGuid, snapIndex = snapIndex } or nil
+                stackLog("marker pickup: guid=" .. tostring(pickupGuid)
+                    .. " baseGuid=" .. tostring(baseGuid)
+                    .. " snapIndex=" .. tostring(snapIndex))
+            end
+        end
     end
 
     -- HAND_REARRANGE_GUIDS is now populated via onObjectLeaveZone (more reliable
