@@ -196,6 +196,8 @@ CAMERA_MENU_ATTACHED = false
 MARKER_MENU_ATTACHED = false
 PASS_HUD_PANEL_ID = "pass_hud_panel"
 PASS_HUD_MAX_LINES = 4
+STAFF_OFFSET_TOP = 1.0    -- world units from counter tile top edge to staff-cost button top
+STAFF_OFFSET_WIDTH = 1.7  -- world units: width of staff-cost button from tile left edge
 STARTING_PLAYER_TOKEN_GUID = "83cc6f"
 OWNER_SNAP_POINT = {
     position = {x = 0.89368, y = 0.20929, z = -1.20459},
@@ -1208,6 +1210,7 @@ function buildReferencePanelsXml()
         ..     '<Text id="pass_hud_line_3" text="" fontSize="16" color="#FFFFFF" alignment="UpperRight" rectAlignment="UpperRight" offsetXY="-8 -66" />'
         ..     '<Text id="pass_hud_line_4" text="" fontSize="16" color="#FFFFFF" alignment="UpperRight" rectAlignment="UpperRight" offsetXY="-8 -94" />'
         .. '</Panel>'
+        .. '<Text id="devCostFlash" text="" fontSize="52" color="#FFEE44" fontStyle="Bold" alignment="MiddleCenter" rectAlignment="MiddleCenter" offsetXY="0 0" active="false" />'
         .. '</Panel>'
 end
 
@@ -4030,6 +4033,136 @@ function onDiscardReshuffleClick(obj, player_color, alt_click)
     reshuffleDiscardIntoMainDeck(player_color)
 end
 
+-- ** dev cost counter button **
+
+function setupDevCostButtons()
+    if not isGameStartedWithRoster() then return end
+    for _, group in ipairs(PLAYER_POSITION_ASSET_GROUPS) do
+        if group.guids then
+            local tile  = getObjectFromGUID(group.guids[2] or "")
+            local board = getObjectFromGUID(group.guids[1] or "")
+            if tile and board then
+                local ok, err = pcall(setupDevCostButtonForGroup, tile, board)
+                if not ok then
+                    stackLog("setupDevCostButtons failed for " .. tostring(group.label) .. ": " .. tostring(err))
+                end
+            end
+        end
+    end
+end
+
+function setupDevCostButtonForGroup(tile, board)
+    local tilePos = safeGetPosition(tile)
+    if not tilePos then return end
+
+    -- Direction from tile toward table center (the tile's "up" direction from player perspective)
+    local upDx, upDz = normalizePlanar(-(tilePos.x or 0), -(tilePos.z or 0))
+    if upDx == 0 and upDz == 0 then return end
+    -- Player's right direction: 90° CCW from up in XZ plane
+    local rightDx, rightDz = -upDz, upDx
+
+    -- World-axis-aligned half-extents of the tile
+    local okB, b = pcall(function() return tile.getBounds() end)
+    if not okB or not b or not b.size then return end
+    local halfX = (b.size.x or 2.0) / 2.0
+    local halfZ = (b.size.z or 2.0) / 2.0
+
+    -- Project half-extents onto up/right axes to get oriented tile half-dimensions
+    local halfDepth = math.abs(upDx * halfX + upDz * halfZ)
+    local halfWidth = math.abs(rightDx * halfX + rightDz * halfZ)
+
+    -- Button region: top edge = STAFF_OFFSET_TOP from tile top, height = STAFF_OFFSET_TOP, width = STAFF_OFFSET_WIDTH from tile left
+    local btnCenterFromTop  = STAFF_OFFSET_TOP * 1.5        -- midpoint of [TOP, TOP*2] = 1.5
+    local btnCenterFromLeft = STAFF_OFFSET_WIDTH * 0.5      -- midpoint of [0, WIDTH] = 0.85
+    local depthOffset = halfDepth - btnCenterFromTop         -- from tile center toward up (table center)
+    local latOffset   = btnCenterFromLeft - halfWidth        -- from tile center toward right (positive = rightward)
+
+    local btnWorldX = (tilePos.x or 0) + upDx * depthOffset + rightDx * latOffset
+    local btnWorldZ = (tilePos.z or 0) + upDz * depthOffset + rightDz * latOffset
+
+    local localPos
+    local okL = pcall(function()
+        localPos = tile.positionToLocal({x = btnWorldX, y = tilePos.y or 0, z = btnWorldZ})
+    end)
+    if not okL or not localPos then return end
+
+    tile.clearButtons()
+    tile.createButton({
+        click_function  = "onDevCostButtonClick",
+        function_owner  = Global,
+        label           = "",
+        position        = {localPos.x, 0.15, localPos.z},
+        rotation        = {0, 0, 0},
+        width           = math.floor(STAFF_OFFSET_WIDTH * 1000),
+        height          = math.floor(STAFF_OFFSET_TOP * 1000),
+        font_size       = 1,
+        color           = {1, 1, 1, 0},
+        font_color      = {1, 1, 1, 0},
+        tooltip         = "Count developer token costs for this player"
+    })
+end
+
+function onDevCostButtonClick(obj, player_color, alt_click)
+    if not obj then return end
+    local objGuid = safeGetGuid(obj)
+    if not objGuid then return end
+
+    local boardGuid = nil
+    for _, group in ipairs(PLAYER_POSITION_ASSET_GROUPS) do
+        if group.guids and group.guids[2] == objGuid then
+            boardGuid = group.guids[1]
+            break
+        end
+    end
+    if not boardGuid then return end
+
+    local board = getObjectFromGUID(boardGuid)
+    local total = countDevCosts(board)
+    local msg = "Developer token cost = " .. tostring(total)
+
+    pcall(function()
+        UI.setAttribute("devCostFlash", "text", msg)
+        UI.setAttribute("devCostFlash", "visibility", player_color or "")
+        UI.setAttribute("devCostFlash", "active", "true")
+    end)
+    Wait.time(function()
+        pcall(function() UI.setAttribute("devCostFlash", "active", "false") end)
+    end, 3)
+end
+
+function countDevCosts(board)
+    if not board then return 0 end
+    local okB, bounds = pcall(function() return board.getBounds() end)
+    if not okB or not bounds then return 0 end
+
+    local cx = (bounds.center and bounds.center.x) or 0
+    local cz = (bounds.center and bounds.center.z) or 0
+    -- Search extends half the board's own dimension beyond each edge
+    local halfSearchX = bounds.size and bounds.size.x or 2.0   -- halfBoard + halfBoard = full board width
+    local halfSearchZ = bounds.size and bounds.size.z or 2.0
+
+    local total = 0
+    for _, o in ipairs(getAllObjects()) do
+        if safeHasTag(o, "devtoken") then
+            local pos = safeGetPosition(o)
+            if pos then
+                local dx = math.abs((pos.x or 0) - cx)
+                local dz = math.abs((pos.z or 0) - cz)
+                if dx <= halfSearchX and dz <= halfSearchZ then
+                    local name = ""
+                    pcall(function() name = o.getName() or "" end)
+                    if name:lower():find("senior") then
+                        total = total + 5
+                    else
+                        total = total + 3
+                    end
+                end
+            end
+        end
+    end
+    return total
+end
+
 -- (local helper) returns true if an object can have snap patterns applied to it
 function isSnapPatternEligible(obj)
     if not obj then return false end
@@ -6284,6 +6417,7 @@ function onLoad(saved_state)
     setupTalentRowPlaceholders()
     if isGameStartedWithRoster() then
         setupMarkerMarbleButtons(false)
+        setupDevCostButtons()
     end
     setupReshuffleButton()
     setupDevReshuffleButton()
