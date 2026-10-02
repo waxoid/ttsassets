@@ -199,6 +199,13 @@ PASS_HUD_MAX_LINES = 4
 STAFF_OFFSET_TOP = 1.0    -- world units from counter tile top edge to staff-cost button top
 STAFF_OFFSET_WIDTH = 1.7  -- world units: width of staff-cost button from tile left edge
 STARTING_PLAYER_TOKEN_GUID = "83cc6f"
+ACTION_BUFFER_DX = 1.6
+-- Buffer zone bounds hard-coded from printrect guid=6cd14b (tile at z≈12)
+ACTION_BUFFER_MIN_X = -20.0867
+ACTION_BUFFER_MAX_X =  19.0714
+ACTION_BUFFER_MIN_Z =  11.5396
+ACTION_BUFFER_MAX_Z =  12.7042
+ACTION_BUFFER_Y     =   1.1908
 OWNER_SNAP_POINT = {
     position = {x = 0.89368, y = 0.20929, z = -1.20459},
     rotation = {x = 0, y = 0, z = 0},
@@ -390,7 +397,7 @@ function getCameraPresetLookAt(player_color, presetName)
             local centerX = (devPos.x + marketPos.x) / 2
             local centerY = (devPos.y + marketPos.y) / 2
             local centerZ = (devPos.z + marketPos.z) / 2
-            local marketPitch = (65 + TOP_DOWN_PITCH) / 2
+            local marketPitch = (82 + TOP_DOWN_PITCH) / 2
 
             return {
                 position = {x = centerX, y = centerY + 0.25, z = centerZ},
@@ -666,6 +673,7 @@ function queueMoneyChipVisualRefresh(obj)
     if not obj or not obj.getGUID then return end
     local guid = obj.getGUID()
     local LIFT_DY = 0.2
+    local SETTLE_DY = 0.03  -- residual offset above original Y; see comment below
     -- Stagger the lift timing randomly between 120 and 200 frames for faster settling.
     local delay = 120 + math.random(0, 80)
     Wait.frames(function()
@@ -673,10 +681,21 @@ function queueMoneyChipVisualRefresh(obj)
         if not live then return end
         local p = safeGetPosition(live)
         if not p then return end
+        local ox, oy, oz = p.x, p.y, p.z
         pcall(function()
-            live.setPosition({x = p.x, y = p.y + LIFT_DY, z = p.z})
+            live.setPosition({x = ox, y = oy + LIFT_DY, z = oz})
         end)
-        -- Do not restore; let physics drop the chip naturally.
+        -- Restore slightly above original Y rather than to exact oy. The lift triggers
+        -- re-render; restoring to exact oy can re-enter the invisible state because the
+        -- chip's natural resting position is partially embedded in the table surface —
+        -- TTS hides objects it considers inside another collider. The 0.03 residual sits
+        -- imperceptibly above the surface; unlocked chips drop that tiny gap naturally,
+        -- locked chips stay at +0.03 which is visually indistinguishable.
+        Wait.frames(function()
+            local live2 = getObjectFromGUID(guid)
+            if not live2 then return end
+            pcall(function() live2.setPosition({x = ox, y = oy + SETTLE_DY, z = oz}) end)
+        end, 4)
     end, delay)
 end
 
@@ -721,7 +740,7 @@ function onChat(message, player)
     if msg == "help" then
         local helpMessage = "Available chat commands:\n'cam <1-4>/market/stack' for camera presets\n'pass' to show as passed in HUD\n'unpass' to show as active in HUD\n'pass reset' to reset all players to active in HUD\n'hotseat <color>' to temporarily switch active player color\n'hotseat off' to restore original player color\n'random <number>' output a random number in given range"
         if EDIT_MODE then
-            helpMessage = helpMessage .. "\n*** edit mode-specific commands ***\n'createstack' to regenerate stack grid snap points on the stack mat\n'printguids' to print GUIDs of selected (and nearby locked) objects\n'freejoins' to allow players to change colors freely\n'unfreejoins' to re-enable player<->color enforcement\n'extracttemplates' to extract snap template cards from tech deck\n'extractimprovements' to extract tech improvement cards"
+            helpMessage = helpMessage .. "\n*** edit mode-specific commands ***\n'createstack' to regenerate stack grid snap points on the stack mat\n'printguids' to print GUIDs of selected (and nearby locked) objects\n'freejoins' to allow players to change colors freely\n'unfreejoins' to re-enable player<->color enforcement\n'extracttemplates' to extract snap template cards from tech deck\n'extractimprovements' to extract tech improvement cards\n'printrect <guid>' to print world-axis bounding rect of an object\n'showobj/hideobj <name>' surface or stash a reserve object — names: see RESERVE_OBJECT_REGISTRY at bottom of script"
         end
         broadcastToColor(helpMessage, (player and player.color) or "White")
         return false
@@ -950,6 +969,40 @@ function onChat(message, player)
         return false
     end
 
+    local printRectArg = string.match(msg, "^printrect%s+(.+)$")
+    if printRectArg then
+        if not EDIT_MODE then
+            broadcastToColor("Enable EDIT_MODE before running printrect", player and player.color or "White")
+            return false
+        end
+        local guid = printRectArg:match("^%s*(.-)%s*$")
+        local obj = getObjectFromGUID(guid)
+        if not obj then
+            broadcastToColor("printrect: object not found guid=" .. tostring(guid), player and player.color or "White")
+            return false
+        end
+        local okB, b = pcall(function() return obj.getBounds() end)
+        if not okB or not b or not b.center or not b.size then
+            broadcastToColor("printrect: could not get bounds for guid=" .. tostring(guid), player and player.color or "White")
+            return false
+        end
+        local cx = b.center.x
+        local cz = b.center.z
+        local halfX = b.size.x / 2
+        local halfZ = b.size.z / 2
+        local msg2 = string.format(
+            "printrect guid=%s\n  center=(%.4f, %.4f, %.4f) size=(%.4f, %.4f, %.4f)\n  minX=%.4f maxX=%.4f minZ=%.4f maxZ=%.4f\n  centerY=%.4f halfY=%.4f",
+            guid,
+            b.center.x, b.center.y, b.center.z,
+            b.size.x, b.size.y, b.size.z,
+            cx - halfX, cx + halfX, cz - halfZ, cz + halfZ,
+            b.center.y, b.size.y / 2
+        )
+        broadcastToColor(msg2, player and player.color or "White")
+        print(msg2)
+        return false
+    end
+
     local randomArg = string.match(msg, "^random%s+(.+)$")
     if randomArg then
         local num = math.floor(tonumber(randomArg) or 0)
@@ -1024,6 +1077,26 @@ function onChat(message, player)
                     end
                 end
             end
+        end
+        return false
+    end
+
+    local showObjArg = string.match(msg, "^showobj%s+(%S+)$")
+    if showObjArg then
+        if not EDIT_MODE then
+            broadcastToColor("Enable EDIT_MODE before using showobj/hideobj", player and player.color or "White")
+        else
+            handleShowObj(showObjArg, player and player.color or "White")
+        end
+        return false
+    end
+
+    local hideObjArg = string.match(msg, "^hideobj%s+(%S+)$")
+    if hideObjArg then
+        if not EDIT_MODE then
+            broadcastToColor("Enable EDIT_MODE before using showobj/hideobj", player and player.color or "White")
+        else
+            handleHideObj(hideObjArg, player and player.color or "White")
         end
         return false
     end
@@ -1683,16 +1756,16 @@ PLAYER_POSITION_ASSET_GROUPS = {
     },
     {
         label = "west",
-        guids = {"a2b1bb", "629342", "3aa517", "16568f", "14a0f8", "4c1d8f", "253c5d", "b1f846", "f24cfa", "5b5e31", "4b5411", "cf756d", "b4ad63", "80bce9", "c46283", "6ffe30", "b4e056", "818d35", "235928", "db7513", "7de78d", "bfae07", "18b510", "00e34d", "6dc30c", "fa3c38", "0c4650"},
+        guids = {"a2b1bb", "629342", "3aa517", "16568f", "14a0f8", "4c1d8f", "253c5d", "b1f846", "f24cfa", "5b5e31", "4b5411", "cf756d", "b4ad63", "80bce9", "c46283", "6ffe30", "8fc0fb", "c7ad5a", "235928", "db7513", "7de78d", "bfae07", "18b510", "00e34d", "6dc30c", "fa3c38", "0c4650"},
     },
     {
         label = "north",
-        guids = {"169a56", "bec6ed", "d5d7f4", "2432ff", "74b607", "bd7883", "0db63e", "d110b0", "b23a4f", "ad6628", "3e1b69", "6205f3", "0edcd3", "f3ca34", "6e2572", "41c1f2", "772b75", "7d6a45", "72a137", "1dece3", "ab9395", "187e27", "69f11f", "1c1cfa", "1c4af7", "c57ecb", "ade299"},
+        guids = {"169a56", "bec6ed", "d5d7f4", "2432ff", "74b607", "bd7883", "0db63e", "d110b0", "b23a4f", "ad6628", "3e1b69", "6205f3", "0edcd3", "f3ca34", "6e2572", "41c1f2", "20f2bd", "fccaa8", "72a137", "1dece3", "ab9395", "187e27", "69f11f", "1c1cfa", "1c4af7", "c57ecb", "ade299"},
     },
     {
         label = "east",
-        guids = {"d132c0", "755ddf", "7eadc9", "ae5711", "139135", "c97f31", "d42c25", "334180", "bf7d66", "4ed232", "3f15d3", "ce53f7", "7eda46", "5ca65e", "c62cb5", "625438", "c78720", "eace17", "bc1ae5", "e01746", "ff970c", "6cabb6", "da66d1", "63d621", "6ffb29", "ed723b", "f18a51"},
-    },
+        guids = {"d132c0", "755ddf", "7eadc9", "ae5711", "139135", "c97f31", "d42c25", "334180", "bf7d66", "4ed232", "3f15d3", "ce53f7", "7eda46", "5ca65e", "c62cb5", "625438", "1e999d", "3d7c42", "bc1ae5", "e01746", "ff970c", "6cabb6", "da66d1", "63d621", "6ffb29", "ed723b", "f18a51"},
+    },s
 }
 
 -- (local helper) returns the asset group for the seat nearest a player's hand zone
@@ -2262,7 +2335,7 @@ function finalizeStackCounter(counter, baseGuid, targetPos, targetRot)
         counter.setValue(1)
     end)
     if okValue then
-        stackLog("initialized stack counter value to 1")
+        -- stackLog("initialized stack counter value to 1")
     else
         stackLog("could not set stack counter value: " .. tostring(errValue))
     end
@@ -2282,7 +2355,7 @@ function finalizeStackCounter(counter, baseGuid, targetPos, targetRot)
             end
             counter.setPosition(targetPos)
             counter.setLock(true)
-            stackLog("finalized stack counter at " .. string.format("(%.2f, %.2f, %.2f)", targetPos.x, targetPos.y, targetPos.z))
+            -- stackLog("finalized stack counter at " .. string.format("(%.2f, %.2f, %.2f)", targetPos.x, targetPos.y, targetPos.z))
         end
     end, 1)
 end
@@ -3234,8 +3307,21 @@ function updateTechDeckProtection()
         deck.setLock(shouldLock and deck.type == "Deck")
     end
 
+    local discardPos = getDiscardPilePosition()
     for _, discardObj in ipairs(getDiscardPileObjects()) do
-        discardObj.setLock(shouldLock and discardObj.type == "Deck")
+        local shouldLockThis = shouldLock and discardObj.type == "Deck"
+        -- Snap decks that are clearly floating before locking so save/load or physics-race
+        -- floating is corrected. Threshold 0.5 avoids disturbing normally-settled decks
+        -- (multi-card decks naturally rest slightly above the single-card canonical Y).
+        if shouldLockThis and discardPos then
+            local okP, p = pcall(function() return discardObj.getPosition() end)
+            if okP and p and p.y > discardPos.y + 0.5 then
+                pcall(function()
+                    discardObj.setPosition({x = p.x, y = discardPos.y, z = p.z})
+                end)
+            end
+        end
+        discardObj.setLock(shouldLockThis)
     end
 
     marketLog("deck protection refreshed; deck-only locks=" .. tostring(shouldLock))
@@ -3256,8 +3342,18 @@ function updateDevDeckProtection()
         deck.setLock(shouldLock and deck.type == "Deck")
     end
 
+    local devDiscardPos = getDevDiscardPilePosition()
     for _, discardObj in ipairs(getDevDiscardPileObjects()) do
-        discardObj.setLock(shouldLock and discardObj.type == "Deck")
+        local shouldLockThis = shouldLock and discardObj.type == "Deck"
+        if shouldLockThis and devDiscardPos then
+            local okP, p = pcall(function() return discardObj.getPosition() end)
+            if okP and p and p.y > devDiscardPos.y + 0.5 then
+                pcall(function()
+                    discardObj.setPosition({x = p.x, y = devDiscardPos.y, z = p.z})
+                end)
+            end
+        end
+        discardObj.setLock(shouldLockThis)
     end
 
     marketLog("developer deck protection refreshed; deck-only locks=" .. tostring(shouldLock))
@@ -3506,12 +3602,16 @@ function handleDiscardDrop(obj)
             end
         else
             -- No existing pile: orient the mini-deck and place it as the discard pile directly.
+            -- Use immediate setPosition (not smooth) above the tile so physics drops the deck
+            -- DOWN to its resting position. Placing too close to the tile surface (+0.05) can
+            -- embed the deck's bounding box and cause physics to push it UP instead, leaving
+            -- it floating when the lock fires. +0.5 ensures a clean downward settle.
             local okMove, moveErr = pcall(function()
                 obj.setRotation(targetRot)
-                obj.setPositionSmooth({x = discardPos.x, y = discardPos.y + yOffset, z = discardPos.z}, false, false)
+                obj.setPosition({x = discardPos.x, y = discardPos.y + 0.5, z = discardPos.z})
             end)
             if EDIT_MODE then
-                print("discard: deck setRotation+setPositionSmooth to {x=" .. discardPos.x .. ", y=" .. (discardPos.y + yOffset) .. ", z=" .. discardPos.z .. "} ok=" .. tostring(okMove) .. (not okMove and (" err=" .. tostring(moveErr)) or ""))
+                print("discard: deck setRotation+setPosition to {x=" .. discardPos.x .. ", y=" .. (discardPos.y + 0.05) .. ", z=" .. discardPos.z .. "} ok=" .. tostring(okMove) .. (not okMove and (" err=" .. tostring(moveErr)) or ""))
             end
         end
     else
@@ -3577,9 +3677,13 @@ function handleDiscardDrop(obj)
         end
     end
 
+    -- 60 frames gives physics enough time to fully settle any branch:
+    -- mini-deck first-drop lands from +0.5 (~30 frames), other branches set final
+    -- position inside inner waits (frame 12-16), leaving 44+ frames of settle time.
+    -- 24 frames was too tight; decks were locking mid-fall or mid-push.
     Wait.frames(function()
         updateTechDeckProtection()
-    end, 24)
+    end, 60)
 
     marketLog("object dropped on discard tile guid=" .. tostring(droppedGuid) .. " type=" .. tostring(objType))
     return true
@@ -3861,7 +3965,7 @@ function onDevDiscardReshuffleClick(obj, player_color, alt_click)
             end)
         end
 
-        debugBroadcastToColor("Click the developer reshuffle button again within " .. tostring(RESHUFFLE_CONFIRM_SECONDS) .. " seconds to confirm", player_color)
+        broadcastToAll(player_color .. " player: click the developer reshuffle button again within " .. tostring(RESHUFFLE_CONFIRM_SECONDS) .. " seconds to confirm", {1, 0.75, 0.2})
 
         Wait.time(function()
             resetDevReshuffleConfirmation(player_color)
@@ -4021,7 +4125,7 @@ function onDiscardReshuffleClick(obj, player_color, alt_click)
             end)
         end
 
-        debugBroadcastToColor("Click the reshuffle button again within " .. tostring(RESHUFFLE_CONFIRM_SECONDS) .. " seconds to confirm", player_color)
+        broadcastToAll(player_color .. " player: click the reshuffle button again within " .. tostring(RESHUFFLE_CONFIRM_SECONDS) .. " seconds to confirm", {1, 0.75, 0.2})
 
         Wait.time(function()
             resetReshuffleConfirmation(player_color)
@@ -4068,21 +4172,27 @@ function setupDevCostButtonForGroup(tile, board)
     local halfZ = (b.size.z or 2.0) / 2.0
 
     -- Project half-extents onto up/right axes to get oriented tile half-dimensions
-    local halfDepth = math.abs(upDx * halfX + upDz * halfZ)
+    local halfDepth = math.abs(upDx) * halfX + math.abs(upDz) * halfZ
     local halfWidth = math.abs(rightDx * halfX + rightDz * halfZ)
 
     -- Button region: top edge = STAFF_OFFSET_TOP from tile top, height = STAFF_OFFSET_TOP, width = STAFF_OFFSET_WIDTH from tile left
-    local btnCenterFromTop  = STAFF_OFFSET_TOP * 1.5        -- midpoint of [TOP, TOP*2] = 1.5
+    local btnCenterFromTop  = STAFF_OFFSET_TOP * (5.0/3.0)  -- midpoint of [TOP*4/3, TOP*2]: trims 1/3 off top edge
     local btnCenterFromLeft = STAFF_OFFSET_WIDTH * 0.5      -- midpoint of [0, WIDTH] = 0.85
     local depthOffset = halfDepth - btnCenterFromTop         -- from tile center toward up (table center)
     local latOffset   = btnCenterFromLeft - halfWidth        -- from tile center toward right (positive = rightward)
 
     local btnWorldX = (tilePos.x or 0) + upDx * depthOffset + rightDx * latOffset
     local btnWorldZ = (tilePos.z or 0) + upDz * depthOffset + rightDz * latOffset
+    local btnWorldY = tilePos.y or 0
 
-    local localPos
+    local localPos, btnWidth, btnHeight
     local okL = pcall(function()
-        localPos = tile.positionToLocal({x = btnWorldX, y = tilePos.y or 0, z = btnWorldZ})
+        local lc = tile.positionToLocal({x = btnWorldX, y = btnWorldY, z = btnWorldZ})
+        local lr = tile.positionToLocal({x = btnWorldX + rightDx * STAFF_OFFSET_WIDTH, y = btnWorldY, z = btnWorldZ + rightDz * STAFF_OFFSET_WIDTH})
+        local lu = tile.positionToLocal({x = btnWorldX + upDx * (STAFF_OFFSET_TOP * 2.0/3.0), y = btnWorldY, z = btnWorldZ + upDz * (STAFF_OFFSET_TOP * 2.0/3.0)})
+        localPos  = lc
+        btnWidth  = math.abs((lr.x or 0) - (lc.x or 0)) + math.abs((lu.x or 0) - (lc.x or 0))
+        btnHeight = math.abs((lr.z or 0) - (lc.z or 0)) + math.abs((lu.z or 0) - (lc.z or 0))
     end)
     if not okL or not localPos then return end
 
@@ -4093,12 +4203,12 @@ function setupDevCostButtonForGroup(tile, board)
         label           = "",
         position        = {localPos.x, 0.15, localPos.z},
         rotation        = {0, 0, 0},
-        width           = math.floor(STAFF_OFFSET_WIDTH * 1000),
-        height          = math.floor(STAFF_OFFSET_TOP * 1000),
+        width           = math.floor((btnWidth or STAFF_OFFSET_WIDTH) * 500),
+        height          = math.floor((btnHeight or STAFF_OFFSET_TOP) * 500),
         font_size       = 1,
         color           = {1, 1, 1, 0},
         font_color      = {1, 1, 1, 0},
-        tooltip         = "Count developer token costs for this player"
+        tooltip         = "show developer costs"
     })
 end
 
@@ -4108,9 +4218,11 @@ function onDevCostButtonClick(obj, player_color, alt_click)
     if not objGuid then return end
 
     local boardGuid = nil
-    for _, group in ipairs(PLAYER_POSITION_ASSET_GROUPS) do
+    local seatColor = nil
+    for i, group in ipairs(PLAYER_POSITION_ASSET_GROUPS) do
         if group.guids and group.guids[2] == objGuid then
             boardGuid = group.guids[1]
+            seatColor = PLAYABLE_COLOR_PRIORITY[i]
             break
         end
     end
@@ -4118,16 +4230,8 @@ function onDevCostButtonClick(obj, player_color, alt_click)
 
     local board = getObjectFromGUID(boardGuid)
     local total = countDevCosts(board)
-    local msg = "Developer token cost = " .. tostring(total)
-
-    pcall(function()
-        UI.setAttribute("devCostFlash", "text", msg)
-        UI.setAttribute("devCostFlash", "visibility", player_color or "")
-        UI.setAttribute("devCostFlash", "active", "true")
-    end)
-    Wait.time(function()
-        pcall(function() UI.setAttribute("devCostFlash", "active", "false") end)
-    end, 3)
+    local tint = (PLAYER_TINTS and seatColor and PLAYER_TINTS[seatColor]) or {1, 1, 1}
+    broadcastToColor("Dev cost: $" .. tostring(total), player_color, tint)
 end
 
 function countDevCosts(board)
@@ -4207,7 +4311,7 @@ function onObjectEnterZone(zone, obj)
             if isRearrange then
                 -- Cancel any older delayed callbacks so in-hand drags don't get a late re-rotation.
                 bumpHandRotationToken(objGuid)
-                stackLog("hand-rotate suppress rearrange guid=" .. tostring(objGuid))
+                -- stackLog("hand-rotate suppress rearrange guid=" .. tostring(objGuid))
             else
                 if safeHasTag(liveObj, "industry") then
                     scheduleHandRotationIfCurrent(liveObj, zone, true, 15, "enter-hand")
@@ -4242,7 +4346,7 @@ function onObjectLeaveZone(zone, obj)
     if objType == "Card" then
         HAND_REARRANGE_GUIDS[guid] = true
         bumpHandRotationToken(guid)
-        stackLog("hand-rotate mark-rearrange guid=" .. tostring(guid))
+        -- stackLog("hand-rotate mark-rearrange guid=" .. tostring(guid))
     end
 
     if not safeHasTag(obj, "developer") then return end
@@ -4374,7 +4478,17 @@ function findProjectConvenienceTarget(droppedProject, player_color)
             if not card or not player_color then return false end
             local okRot, rot = pcall(function() return card.getRotation() end)
             if not okRot or not rot then return false end
-            local expectedYaw = getHandRelativeCardYaw(nil, false) -- nil zone, project card
+            -- Use the player's actual hand zone rotation so each seat gets its own expected yaw
+            -- (south≈180, west≈270, north≈0, east≈90). nil zone always returns 180 (south-only).
+            local zoneYaw = 0
+            local p = getPlayerByColorSafe(player_color)
+            if p and p.seated and p.getHandTransform then
+                local okHand, hand = pcall(function() return p.getHandTransform(1) end)
+                if okHand and hand and hand.rotation then
+                    zoneYaw = normalizeYaw(hand.rotation.y or 0)
+                end
+            end
+            local expectedYaw = normalizeYaw(zoneYaw + 180)
             local function closeEnough(a, b)
                 return math.abs(((a or 0) - (b or 0) + 180) % 360 - 180) <= 5
             end
@@ -5464,6 +5578,7 @@ function onObjectDrop(player_color, obj)
             PASSED_BY_COLOR = {}
             updatePassHud()
             returnRecruitersHome()
+            ResetActionMarkers()
             broadcastToAll("Round advanced", {0.8, 0.95, 0.8})
         end
         if markerPos and math.abs((markerPos.z or 0) - ROUND3_MARKER_Z) <= ROUND3_MARKER_Z_TOLERANCE then
@@ -5498,6 +5613,33 @@ function onObjectDrop(player_color, obj)
                         .. " dropIndex=" .. tostring(dropIndex)
                         .. " delta=" .. tostring(delta))
                     incrementBaseCardCounter(pickupState.baseGuid, delta)
+                end
+            end
+        end
+    end
+
+    -- Auto-associate replacement markers: if any "marker" tagged object is dropped on a
+    -- base card snap point without STACK_BASE_MARKER_TAG, stamp it with the tag and GM
+    -- notes so future pickups/drops track the counter correctly (same as auto-placed markers).
+    if droppedGuid and safeHasTag(obj, "marker") and not safeHasTag(obj, STACK_BASE_MARKER_TAG) then
+        local pos = safeGetPosition(obj)
+        if pos then
+            for _, candidate in ipairs(getAllObjects()) do
+                if safeGetType(candidate) == "Card" and safeHasTag(candidate, "base") then
+                    local idx = getSnapIndexForPosition(candidate, pos)
+                    if idx then
+                        local baseGuid = safeGetGuid(candidate)
+                        pcall(function()
+                            obj.addTag(STACK_BASE_MARKER_TAG)
+                            if obj.setGMNotes then
+                                obj.setGMNotes("base_marker_guid:" .. baseGuid)
+                            end
+                        end)
+                        stackLog("marker auto-associated guid=" .. tostring(droppedGuid)
+                            .. " baseGuid=" .. tostring(baseGuid)
+                            .. " snapIdx=" .. tostring(idx))
+                        break
+                    end
                 end
             end
         end
@@ -6427,12 +6569,27 @@ function onLoad(saved_state)
         attachMarkerSpawnMenu()
     end
     attachBoardSnapSyncMenus()
-    updateTechDeckProtection()
-    updateDevDeckProtection()
+    -- Defer deck locking until physics has fully settled. Calling setLock(true) during
+    -- the initial physics settle pass freezes decks mid-air, causing the discard deck
+    -- to float progressively higher on each reload. Waiting lets gravity pull any
+    -- floating deck to its natural resting position before it is locked.
+    Wait.frames(function()
+        updateTechDeckProtection()
+        updateDevDeckProtection()
+    end, 60)
     -- Defer HUD refresh until hand positions and starting-player token have settled.
+    -- Three passes mirror the three XML re-application windows in setupReferencePanels
+    -- (frames 5, 95, 305): each UI.setXml call resets all setAttribute state, so we
+    -- re-populate the HUD after each potential re-apply.
     Wait.frames(function()
         refreshPassHudSafe("onLoad-settled")
     end, 90)
+    Wait.frames(function()
+        refreshPassHudSafe("onLoad-post-xml2")
+    end, 110)
+    Wait.frames(function()
+        refreshPassHudSafe("onLoad-post-xml3")
+    end, 320)
 
     -- Reload safety pass: money chips can intermittently fail to render until nudged.
     Wait.frames(function()
@@ -6918,6 +7075,68 @@ function returnRecruitersHome()
             end)
         end
     end
+end
+
+function ResetActionMarkers()
+    -- Pre-collect candidate action markers: all "marker" tagged objects
+    local candidates = {}
+    for _, obj in ipairs(getAllObjects()) do
+        if safeHasTag(obj, "marker") then
+            local pos = safeGetPosition(obj)
+            if pos then
+                table.insert(candidates, {obj = obj, pos = pos, moved = false})
+            end
+        end
+    end
+
+    local movedCount = 0
+    local pad = 0.25
+
+    for _, card in ipairs(getAllObjects()) do
+        if safeGetType(card) == "Card"
+                and safeHasTag(card, "project") and not safeHasTag(card, "base") then
+            local cardPos = safeGetPosition(card)
+            if cardPos and isWorldPositionInStackArea(cardPos) then
+                local okSnaps, snapPoints = pcall(function() return card.getSnapPoints() or {} end)
+                if okSnaps and type(snapPoints) == "table" and #snapPoints == 4 then
+                    local cardBounds = getCardBoundsXZ(card)
+                    if cardBounds then
+                        local cardMidZ = (cardBounds.minZ + cardBounds.maxZ) / 2
+
+                        for _, entry in ipairs(candidates) do
+                            if not entry.moved then
+                                local mPos = entry.pos
+                                local inX = mPos.x >= (cardBounds.minX - pad) and mPos.x <= (cardBounds.maxX + pad)
+                                local inZ = mPos.z >= (cardBounds.minZ - pad) and mPos.z <= (cardBounds.maxZ + pad)
+                                if inX and inZ and mPos.z < cardMidZ then
+                                    -- Scatter near the marker's own column X so markers return
+                                    -- above the column they came from rather than clustering at center.
+                                    local colX = math.max(ACTION_BUFFER_MIN_X, math.min(ACTION_BUFFER_MAX_X, mPos.x))
+                                    local dxMin = math.max(ACTION_BUFFER_MIN_X, colX - ACTION_BUFFER_DX)
+                                    local dxMax = math.min(ACTION_BUFFER_MAX_X, colX + ACTION_BUFFER_DX)
+                                    local destX = dxMin + math.random() * (dxMax - dxMin)
+                                    local destZ = ACTION_BUFFER_MIN_Z + math.random() * (ACTION_BUFFER_MAX_Z - ACTION_BUFFER_MIN_Z)
+                                    local ok = pcall(function()
+                                        entry.obj.setPosition({x = destX, y = ACTION_BUFFER_Y, z = destZ})
+                                    end)
+                                    if ok then
+                                        entry.pos  = {x = destX, y = ACTION_BUFFER_Y, z = destZ}
+                                        entry.moved = true
+                                        movedCount  = movedCount + 1
+                                        stackLog("ResetActionMarkers: moved marker to buffer ("
+                                            .. string.format("%.2f", destX) .. ","
+                                            .. string.format("%.2f", destZ) .. ")")
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    stackLog("ResetActionMarkers: done moved=" .. tostring(movedCount))
 end
 
 function slideTrackersFull(isSolo)
@@ -7528,6 +7747,7 @@ function doStartGame(player_color, isBasicMode)
     runStartStep("setup talent placeholders", function() setupTalentRowPlaceholders() end)
     runStartStep("setup marker marbles", function() setupMarkerMarbleButtons(true) end)
     runStartStep("setup marker menu", function() attachMarkerSpawnMenu() end)
+    runStartStep("setup dev cost buttons", function() setupDevCostButtons() end)
 
     -- Tech cards: 8 total. Basic mode gives 1 from starter project deck first.
     -- Wait a few frames so takeObject calls from refreshMarket/refreshTalentRow
@@ -9306,3 +9526,90 @@ function extractImprovementsFromDeck(player_color)
     extractNext(1)
 end
 
+
+-- ============================================================
+-- ** EDIT_MODE reserve-object show/hide utility **
+-- Chat commands (EDIT_MODE only):
+--   showobj <name>  — bring named object to its on-table position
+--   hideobj <name>  — move named object to its off-table storage position
+--
+-- To add an object: add an entry to RESERVE_OBJECT_REGISTRY below.
+--   guid          — TTS GUID of the object
+--   show_ref_guid — (optional) borrow Y from this object so the reserve
+--                   piece surfaces at the same height as the reference;
+--                   falls back to show_y if the ref is not found
+--   show_y        — fallback explicit Y when showing (tune to table surface)
+--   hide_pos      — {x, y, z} off-table storage; stagger z per entry so
+--                   each object has its own lane and is easy to camera-pan to
+-- ============================================================
+
+RESERVE_OBJECT_REGISTRY = {
+    marketfull = {
+        guid          = FULL_MARKET_TILE_GUID,
+        -- show_pos x/z: a clear area of the table for editing; y overridden at runtime
+        -- by show_ref_guid so the object surfaces at the same height as the reference.
+        show_pos      = {x = -27, y = 2.0, z = -21},
+        show_ref_guid = MARKET_BOARD_GUID,  -- borrow Y from the basic market board
+        hide_pos      = {x = 30, y = 2.0, z = 0},
+    },
+    -- Add further entries here. Stagger hide_pos.z (e.g. z=5, z=10 ...) so each
+    -- object has its own lane at X=30 and is easy to camera-pan to.
+}
+
+function getReserveNames()
+    local names = {}
+    for k in pairs(RESERVE_OBJECT_REGISTRY) do table.insert(names, k) end
+    table.sort(names)
+    return table.concat(names, ", ")
+end
+
+function handleShowObj(name, player_color)
+    local entry = RESERVE_OBJECT_REGISTRY[string.lower(name or "")]
+    if not entry then
+        broadcastToColor("showobj: unknown name '" .. tostring(name) .. "'. Known: " .. getReserveNames(), player_color or "White")
+        return
+    end
+    local obj = getObjectFromGUID(entry.guid)
+    if not obj then
+        broadcastToColor("showobj: object not found (guid=" .. tostring(entry.guid) .. ")", player_color or "White")
+        return
+    end
+    local sp = entry.show_pos or {x = 0, y = 2.0, z = 0}
+    local showY = sp.y or 2.0
+    if entry.show_ref_guid then
+        local ref = getObjectFromGUID(entry.show_ref_guid)
+        if ref then
+            local okR, rPos = pcall(function() return ref.getPosition() end)
+            if okR and rPos then showY = rPos.y end
+        end
+    end
+    pcall(function()
+        obj.setLock(false)
+        obj.setPosition({x = sp.x, y = showY, z = sp.z})
+    end)
+    broadcastToColor("showobj: '" .. tostring(name) .. "' moved to x=" .. tostring(sp.x) .. " z=" .. tostring(sp.z) .. " y=" .. string.format("%.2f", showY), player_color or "White")
+end
+
+function handleHideObj(name, player_color)
+    local entry = RESERVE_OBJECT_REGISTRY[string.lower(name or "")]
+    if not entry then
+        broadcastToColor("hideobj: unknown name '" .. tostring(name) .. "'. Known: " .. getReserveNames(), player_color or "White")
+        return
+    end
+    local obj = getObjectFromGUID(entry.guid)
+    if not obj then
+        broadcastToColor("hideobj: object not found (guid=" .. tostring(entry.guid) .. ")", player_color or "White")
+        return
+    end
+    local hp = entry.hide_pos
+    pcall(function()
+        obj.setLock(false)
+        obj.setPosition({x = hp.x, y = hp.y, z = hp.z})
+    end)
+    -- Lock after physics settles so the object stays put off-table
+    Wait.frames(function()
+        local live = getObjectFromGUID(entry.guid)
+        if live then pcall(function() live.setLock(true) end) end
+    end, 30)
+    broadcastToColor("hideobj: '" .. tostring(name) .. "' stashed at x=" .. tostring(hp.x) .. " z=" .. tostring(hp.z), player_color or "White")
+end
