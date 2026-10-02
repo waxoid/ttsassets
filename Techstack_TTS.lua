@@ -740,7 +740,7 @@ function onChat(message, player)
     if msg == "help" then
         local helpMessage = "Available chat commands:\n'cam <1-4>/market/stack' for camera presets\n'pass' to show as passed in HUD\n'unpass' to show as active in HUD\n'pass reset' to reset all players to active in HUD\n'hotseat <color>' to temporarily switch active player color\n'hotseat off' to restore original player color\n'random <number>' output a random number in given range"
         if EDIT_MODE then
-            helpMessage = helpMessage .. "\n*** edit mode-specific commands ***\n'createstack' to regenerate stack grid snap points on the stack mat\n'printguids' to print GUIDs of selected (and nearby locked) objects\n'freejoins' to allow players to change colors freely\n'unfreejoins' to re-enable player<->color enforcement\n'extracttemplates' to extract snap template cards from tech deck\n'extractimprovements' to extract tech improvement cards\n'printrect <guid>' to print world-axis bounding rect of an object\n'showobj/hideobj <name>' surface or stash a reserve object — names: see RESERVE_OBJECT_REGISTRY at bottom of script"
+            helpMessage = helpMessage .. "\n*** edit mode-specific commands ***\n'createstack' to regenerate stack grid snap points on the stack mat\n'printguids' to print GUIDs of selected (and nearby locked) objects\n'freejoins' to allow players to change colors freely\n'unfreejoins' to re-enable player<->color enforcement\n'extracttemplates' to extract snap template cards from tech deck\n'extractimprovements' to extract tech improvement cards\n'printrect <guid>' to print world-axis bounding rect of an object\n'showobj/hideobj <name>' surface or stash a reserve object"
         end
         broadcastToColor(helpMessage, (player and player.color) or "White")
         return false
@@ -9550,10 +9550,10 @@ RESERVE_OBJECT_REGISTRY = {
         -- by show_ref_guid so the object surfaces at the same height as the reference.
         show_pos      = {x = -27, y = 2.0, z = -21},
         show_ref_guid = MARKET_BOARD_GUID,  -- borrow Y from the basic market board
-        hide_pos      = {x = 30, y = 2.0, z = 0},
+        hide_pos      = {x = 50, y = 2.0, z = 0},
     },
     -- Add further entries here. Stagger hide_pos.z (e.g. z=5, z=10 ...) so each
-    -- object has its own lane at X=30 and is easy to camera-pan to.
+    -- object has its own lane at X=50 and is easy to camera-pan to.
 }
 
 function getReserveNames()
