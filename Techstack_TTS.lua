@@ -258,10 +258,10 @@ RECRUITER_POSITIONS_BASIC = {
     {-12.01, 1.24, 22.96}
 }
 RECRUITER_POSITIONS_FULL = {
-    {-13.15, 1.24, 23.82},
-    {-13.70, 1.24, 23.82},
-    {-12.56, 1.24, 23.82},
-    {-12.56, 1.24, 23.82}
+    {-13.68, 1.24, 23.82},
+    {-13.12, 1.24, 23.82},
+    {-12.54, 1.24, 23.82},
+    {-12.01, 1.24, 23.82}
 }
 TRACKER_START_DX_FULL = -2.14
 ROUND_MARKER_START_POS_FULL = {x = -15.16, y = 1.44, z = 24.05}
@@ -1766,7 +1766,7 @@ PLAYER_POSITION_ASSET_GROUPS = {
     {
         label = "east",
         guids = {"d132c0", "755ddf", "7eadc9", "ae5711", "139135", "c97f31", "d42c25", "334180", "bf7d66", "4ed232", "3f15d3", "ce53f7", "7eda46", "5ca65e", "c62cb5", "625438", "1e999d", "3d7c42", "bc1ae5", "e01746", "ff970c", "6cabb6", "da66d1", "63d621", "6ffb29", "ed723b", "f18a51"},
-    },s
+    },
 }
 
 -- (local helper) returns the asset group for the seat nearest a player's hand zone
