@@ -264,6 +264,7 @@ RECRUITER_POSITIONS_FULL = {
     {-12.56, 1.24, 23.82}
 }
 TRACKER_START_DX_FULL = -2.14
+ROUND_MARKER_START_POS_FULL = {x = -15.16, y = 1.44, z = 24.05}
 
 function normalizePlayerNameKey(value)
     return string.lower(tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", ""))
@@ -7709,6 +7710,14 @@ function doStartGame(player_color, isBasicMode)
         runStartStep("slide trackers full",      function() slideTrackersFull(#seated == 1) end)
         runStartStep("swap market tile full",    function() swapMarketTileFull() end)
         runStartStep("swap tracker tile full",   function() swapTrackerTileFull() end)
+        scheduleStartStep("position round marker full", 15, function()
+            local rm = getObjectFromGUID(ROUND_MARKER_GUID)
+            if rm then
+                pcall(function()
+                    rm.setPositionSmooth(ROUND_MARKER_START_POS_FULL, false, true)
+                end)
+            end
+        end)
         runStartStep("delete ten coins",         function() deleteFullGameCoins() end)
     else
         runStartStep("remove full upgrade cards", function() setupUpgradeCardsBasic() end)
