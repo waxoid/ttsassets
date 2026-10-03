@@ -9550,7 +9550,7 @@ RESERVE_OBJECT_REGISTRY = {
         -- by show_ref_guid so the object surfaces at the same height as the reference.
         show_pos      = {x = -27, y = 2.0, z = -21},
         show_ref_guid = MARKET_BOARD_GUID,  -- borrow Y from the basic market board
-        hide_pos      = {x = 50, y = 2.0, z = 0},
+        hide_pos      = {x = 130, y = 2.0, z = 0},
     },
     -- Add further entries here. Stagger hide_pos.z (e.g. z=5, z=10 ...) so each
     -- object has its own lane at X=50 and is easy to camera-pan to.
