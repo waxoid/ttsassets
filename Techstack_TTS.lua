@@ -187,8 +187,8 @@ DEV_DECK_HOME_ROTATION = nil
 DEV_LAST_DRAG_INFO = nil  -- {guid, dropX} of most-recently dropped developer card
 DEV_RECENTLY_LEFT_HAND = {} -- [guid] = true for a short window after leaving a hand zone
 
-REFERENCE_ROUND_GUIDE_URL = "https://raw.githubusercontent.com/waxoid/ttsassets/main/round_guide.png"
-REFERENCE_CARD_ICON_URL = "https://raw.githubusercontent.com/waxoid/ttsassets/main/card_guide.png"
+REFERENCE_ROUND_GUIDE_URL = "https://raw.githubusercontent.com/waxoid/ttsassets/main/roundguidev6.png"
+REFERENCE_CARD_ICON_URL = "https://raw.githubusercontent.com/waxoid/ttsassets/main/cardguidev6.png"
 REFERENCE_ROUND_PANEL_ID = "ref_panel_round_guide"
 REFERENCE_CARD_ICON_PANEL_ID = "ref_panel_card_icon"
 REFERENCE_MENU_ATTACHED = false
