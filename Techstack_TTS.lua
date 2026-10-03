@@ -252,10 +252,10 @@ ROUND3_BASE_ROW_1_POSITIONS = {
 -- recruiter pawns blue/yellow/green/purple (normal SWNE clockwise)
 RECRUITER_GUIDS = {"0a923f", "80bce9", "f3ca34", "5ca65e"}
 RECRUITER_POSITIONS_BASIC = {
-    {-13.15, 1.24, 22.99},
-    {-13.70, 1.24, 22.99},
-    {-12.56, 1.24, 22.99},
-    {-12.56, 1.24, 22.99}
+    {-13.69, 1.24, 23.05},
+    {-13.12, 1.24, 22.96},
+    {-12.54, 1.24, 23.05},
+    {-12.01, 1.24, 22.96}
 }
 RECRUITER_POSITIONS_FULL = {
     {-13.15, 1.24, 23.82},
@@ -7015,11 +7015,6 @@ function swapTrackerTileFull()
     local basicTile = getObjectFromGUID(TRACKER_BOARD_GUID)
     local fullTile  = getObjectFromGUID(FULL_TRACKER_TILE_GUID)
     if not basicTile or not fullTile then return end
-    -- Copy snap points (local-space) from basic tile to full tile before destruct
-    local okSnaps, snaps = pcall(function() return basicTile.getSnapPoints() end)
-    if okSnaps and snaps then
-        pcall(function() fullTile.setSnapPoints(snaps) end)
-    end
     local pos, rot
     local ok = pcall(function()
         pos = basicTile.getPosition()
@@ -9552,8 +9547,14 @@ RESERVE_OBJECT_REGISTRY = {
         show_ref_guid = MARKET_BOARD_GUID,  -- borrow Y from the basic market board
         hide_pos      = {x = 130, y = 2.0, z = 0},
     },
-    -- Add further entries here. Stagger hide_pos.z (e.g. z=5, z=10 ...) so each
-    -- object has its own lane at X=50 and is easy to camera-pan to.
+    trackerfull = {
+        guid          = FULL_TRACKER_TILE_GUID,
+        show_pos      = {x = -27, y = 2.0, z = -34},
+        show_ref_guid = TRACKER_BOARD_GUID,  -- borrow Y from the basic tracker board
+        hide_pos      = {x = 130, y = 2.0, z = 10},
+    },
+    -- Add further entries here. Stagger hide_pos.z (e.g. z=20, z=30 ...) so each
+    -- object has its own lane at X=130 and is easy to camera-pan to.
 }
 
 function getReserveNames()
