@@ -94,7 +94,6 @@ function toggleEditMode(player_color)
     end
 
     if EDIT_MODE then
-        attachBoardSnapSyncMenus()
         local deck = getObjectFromGUID(PROJECT_DECK_GUID)
         if deck then attachTagMenu(deck, "project tech") end
         deck = getObjectFromGUID(DEVELOPER_DECK_GUID)
@@ -212,7 +211,6 @@ OWNER_SNAP_POINT = {
     rotation_snap = true,
     tags = {"marker"}
 }
-BOARD_SNAP_MENU_ATTACHED_BY_GUID = {}
 PASSED_BY_COLOR = {} -- [playerColor] = true when that player has passed for the round
 HUD_PLAYER_CACHE = {}
 STARTED_PLAYER_COLORS = {}
@@ -229,6 +227,7 @@ FREE_JOINS = false
 ROUND_MARKER_GUID = "b5def1"
 ROUND_MARKER_PICKUP_POS = nil
 ROUND3_MARKER_Z = 22.94
+ROUND3_MARKER_Z_BASIC = 22.38
 ROUND3_MARKER_Z_TOLERANCE = 0.20
 ROUND3_BASES_COLLECTED = false
 IS_BASIC_MODE = false
@@ -647,101 +646,13 @@ function refreshPassHudSafe(reasonLabel)
 end
 
 
-function isMoneyChipByName(obj)
-    if not obj or not obj.getName then return false end
-    local ok, name = pcall(function()
-        return tostring(obj.getName() or "")
-    end)
-    if not ok then return false end
-    return name == "$1" or name == "$5" or name == "$10"
-end
-
--- returns true if an object is likely a money chip by name or type
-function isPossibleMoneyChipObject(obj)
-    if not obj then return false end
-    if isMoneyChipByName(obj) then return true end
-
-    local objType = string.lower(tostring(obj.type or ""))
-    if string.find(objType, "chip", 1, true) ~= nil then
-        return true
-    end
-
-    return false
-end
-
--- nudges a money chip upward after a delay to force a visual refresh
-function queueMoneyChipVisualRefresh(obj)
-    if not obj or not obj.getGUID then return end
-    local guid = obj.getGUID()
-    local LIFT_DY = 0.2
-    local SETTLE_DY = 0.03  -- residual offset above original Y; see comment below
-    -- Stagger the lift timing randomly between 120 and 200 frames for faster settling.
-    local delay = 120 + math.random(0, 80)
-    Wait.frames(function()
-        local live = getObjectFromGUID(guid)
-        if not live then return end
-        local p = safeGetPosition(live)
-        if not p then return end
-        local ox, oy, oz = p.x, p.y, p.z
-        pcall(function()
-            live.setPosition({x = ox, y = oy + LIFT_DY, z = oz})
-        end)
-        -- Restore slightly above original Y rather than to exact oy. The lift triggers
-        -- re-render; restoring to exact oy can re-enter the invisible state because the
-        -- chip's natural resting position is partially embedded in the table surface —
-        -- TTS hides objects it considers inside another collider. The 0.03 residual sits
-        -- imperceptibly above the surface; unlocked chips drop that tiny gap naturally,
-        -- locked chips stay at +0.03 which is visually indistinguishable.
-        Wait.frames(function()
-            local live2 = getObjectFromGUID(guid)
-            if not live2 then return end
-            pcall(function() live2.setPosition({x = ox, y = oy + SETTLE_DY, z = oz}) end)
-        end, 4)
-    end, delay)
-end
-
--- queues multiple delayed visual refresh passes for a money chip
-function queueMoneyChipRefreshAfterSettle(obj, frameDelays)
-    if not obj or not obj.getGUID then return end
-    local guid = obj.getGUID()
-    local delays = frameDelays or {0, 2, 8}
-
-    for _, delay in ipairs(delays) do
-        local function tryRefresh()
-            local live = getObjectFromGUID(guid)
-            if not live then return end
-            -- On load, chip names can initialize late; allow type/name detection.
-            if isPossibleMoneyChipObject(live) then
-                queueMoneyChipVisualRefresh(live)
-            end
-        end
-
-        if delay and delay > 0 then
-            Wait.frames(tryRefresh, delay)
-        else
-            tryRefresh()
-        end
-    end
-end
-
-function refreshVisibleMoneyChipsOnTable()
-    local refreshed = 0
-    for _, obj in ipairs(getAllObjects()) do
-        if isPossibleMoneyChipObject(obj) then
-            queueMoneyChipRefreshAfterSettle(obj, {0, 4, 16, 48, 360})
-            refreshed = refreshed + 1
-        end
-    end
-    marketLog("money chip refresh settle-pass queued for " .. tostring(refreshed) .. " chip candidates")
-end
-
 function onChat(message, player)
     local msg = string.lower((message or ""):gsub("^%s+", ""):gsub("%s+$", ""))
 
     if msg == "help" then
         local helpMessage = "Available chat commands:\n'cam <1-4>/market/stack' for camera presets\n'pass' to show as passed in HUD\n'unpass' to show as active in HUD\n'pass reset' to reset all players to active in HUD\n'hotseat <color>' to temporarily switch active player color\n'hotseat off' to restore original player color\n'random <number>' output a random number in given range"
         if EDIT_MODE then
-            helpMessage = helpMessage .. "\n*** edit mode-specific commands ***\n'createstack' to regenerate stack grid snap points on the stack mat\n'printguids' to print GUIDs of selected (and nearby locked) objects\n'freejoins' to allow players to change colors freely\n'unfreejoins' to re-enable player<->color enforcement\n'extracttemplates' to extract snap template cards from tech deck\n'extractimprovements' to extract tech improvement cards\n'printrect <guid>' to print world-axis bounding rect of an object\n'showobj/hideobj <name>' surface or stash a reserve object"
+            helpMessage = helpMessage .. "\n*** edit mode-specific commands ***\n'createstack' to regenerate stack grid snap points on the stack mat\n'printguids' to print GUIDs of selected (and nearby locked) objects\n'freejoins' to allow players to change colors freely\n'unfreejoins' to re-enable player<->color enforcement\n'extracttemplates' to extract snap template cards from tech deck\n'extractimprovements' to extract tech improvement cards\n'printrect <guid>' to print world-axis bounding rect of an object\n'showobj/hideobj <name>' surface or stash a reserve object\n'copysnaps <guid1>,<guid2>' copy snap zones from guid1 to guid2\n'adjuststacksnaps' shift snap points in stack area by DZ_TRAY"
         end
         broadcastToColor(helpMessage, (player and player.color) or "White")
         return false
@@ -1101,6 +1012,40 @@ function onChat(message, player)
         end
         return false
     end
+
+    local copySnapsArg = string.match(msg, "^copysnaps%s+(.+)$")
+    if copySnapsArg then
+        if not EDIT_MODE then
+            broadcastToColor("Enable EDIT_MODE before using copysnaps", player and player.color or "White")
+        else
+            local guid1, guid2 = string.match(copySnapsArg, "^([^,%s]+)[,%s]+([^,%s]+)$")
+            if not guid1 or not guid2 then
+                broadcastToColor("copysnaps: expected format copysnaps <guid1>,<guid2>", player and player.color or "White")
+            else
+                local src = getObjectFromGUID(guid1)
+                local dst = getObjectFromGUID(guid2)
+                if not src then
+                    broadcastToColor("copysnaps: source object not found (guid=" .. guid1 .. ")", player and player.color or "White")
+                elseif not dst then
+                    broadcastToColor("copysnaps: destination object not found (guid=" .. guid2 .. ")", player and player.color or "White")
+                else
+                    local snaps = src.getSnapPoints() or {}
+                    dst.setSnapPoints(JSON.decode(JSON.encode(snaps)))
+                    broadcastToColor("copysnaps: copied " .. tostring(#snaps) .. " snap point(s) from " .. guid1 .. " to " .. guid2, player and player.color or "White")
+                end
+            end
+        end
+        return false
+    end
+
+    if msg == "adjuststacksnaps" or msg == "!adjuststacksnaps" or msg == "/adjuststacksnaps" then
+        if not EDIT_MODE then
+            broadcastToColor("Enable EDIT_MODE before running adjuststacksnaps", player and player.color or "White")
+        else
+            adjustStackSnapPoints(player and player.color or "White")
+        end
+        return false
+    end
 end
 
 -- (local helper) removes a player from both reference panel visibility lists
@@ -1285,6 +1230,16 @@ function buildReferencePanelsXml()
         ..     '<Text id="pass_hud_line_4" text="" fontSize="16" color="#FFFFFF" alignment="UpperRight" rectAlignment="UpperRight" offsetXY="-8 -94" />'
         .. '</Panel>'
         .. '<Text id="devCostFlash" text="" fontSize="52" color="#FFEE44" fontStyle="Bold" alignment="MiddleCenter" rectAlignment="MiddleCenter" offsetXY="0 0" active="false" />'
+        .. '<Panel id="cash_dialog" active="false" visibility="" width="360" height="210" rectAlignment="MiddleCenter" offsetXY="0 0" color="#111111F0" outline="#FFFFFF44" outlineSize="2 2">'
+        ..     '<Text id="cash_dialog_title"  text="Cash" fontSize="20" color="#F0F0F0" fontStyle="Bold" alignment="UpperCenter" rectAlignment="UpperCenter" offsetXY="0 -18" />'
+        ..     '<Text id="cash_dialog_amount" text="$0"   fontSize="32" color="#FFDD44" fontStyle="Bold" alignment="UpperCenter" rectAlignment="UpperCenter" offsetXY="0 -60" />'
+        ..     '<Button text="-5" onClick="onCashDlgSub5" fontSize="18" width="70" height="34" rectAlignment="UpperCenter" offsetXY="-120 -115" />'
+        ..     '<Button text="-1" onClick="onCashDlgSub1" fontSize="18" width="70" height="34" rectAlignment="UpperCenter" offsetXY="-40 -115" />'
+        ..     '<Button text="+1" onClick="onCashDlgAdd1" fontSize="18" width="70" height="34" rectAlignment="UpperCenter" offsetXY="40 -115" />'
+        ..     '<Button text="+5" onClick="onCashDlgAdd5" fontSize="18" width="70" height="34" rectAlignment="UpperCenter" offsetXY="120 -115" />'
+        ..     '<Button id="cash_dialog_ok"     text="OK"     onClick="onCashDialogOK"     fontSize="20" colors="#2B5C2BFF|#3D8C3DFF|#4EBF4EFF|#2B5C2BFF" width="130" height="38" rectAlignment="UpperCenter" offsetXY="-75 -162" />'
+        ..     '<Button id="cash_dialog_cancel" text="Cancel" onClick="onCashDialogCancel" fontSize="20" width="130" height="38" rectAlignment="UpperCenter" offsetXY="75 -162" />'
+        .. '</Panel>'
         .. '</Panel>'
 end
 
@@ -1442,7 +1397,9 @@ STACK_POSITION_TOLERANCE = 0.45
 STACK_BASE_DETECT_RADIUS = 1.5
 STACK_COLUMN_FALLBACK_TOLERANCE = 1.20
 STACK_COUNTER_TAG = "stackcounter"
+STACK_TRAY_TAG = "stacktray"
 STACK_BASE_MARKER_TAG = "stackmarkerauto"
+TRAY_MARKER_COUNT_BY_GUID = {}
 STACK_AUTOMARKER_SNAP_ROT_Y = 180
 STACK_AUTOMARKER_SNAP_ROT_Y_TOLERANCE = 2
 STACK_COUNTER_TEMPLATE_GUID_CACHE = nil
@@ -1460,6 +1417,12 @@ end
 function getStackMarkerOwnerGuid(obj)
     if not obj or not obj.getGMNotes then return nil end
     return string.match(obj.getGMNotes() or "", "^base_marker_guid:(%w+)$")
+end
+
+-- Extracts the owning base card GUID from a usage tray's GM notes
+function getStackTrayOwnerGuid(obj)
+    if not obj or not obj.getGMNotes then return nil end
+    return string.match(obj.getGMNotes() or "", "^tray_base_guid:(%w+)$")
 end
 
 -- Returns the 1-based index (sorted by card-local X, ascending) of the snap point
@@ -1743,29 +1706,49 @@ UPGRADE_BASIC_GUIDS = {"c22f36", "b1f846", "2432ff", "c97f31"}
 RECRUITER_GUIDS = {"0a923f", "80bce9", "f3ca34", "5ca65e"} -- standard SWNE order
 MORALE_TRACKER_GUIDS = {"3ec96a", "235928", "72a137", "bc1ae5"} -- standard SWNE order
 BRAND_TRACKER_GUIDS = {"8d878e", "db7513", "1dece3", "e01746"} -- standard SWNE order
-TENCOIN_GUIDS = {"d32031", "7de78d", "ab9395", "ff970c"} -- standard SWNE order
+TENCOIN_GUIDS = {"079912", "b66e54", "e66086", "aef0d0"} -- standard SWNE order
+
+-- Main player board GUIDs for the full game, in SWNE order (south=blue, west=yellow, north=green, east=purple).
+-- At full game start these replace guids[1] in each PLAYER_POSITION_ASSET_GROUPS entry so all
+-- seat-detection, marker-zone, and dev-cost logic targets the correct board.
+PLAYER_BOARD_FULL_GUIDS = {"29716c", "faaeb0", "0416d6", "51daec"}
+
+-- Cash / bill system
+DZ_CASH_DETECTION      = 4    -- TTS units "above" board top edge to scan for bills
+BILL_STACK_RADIUS      = 3    -- XZ radius for stack flood-fill
+MONEY_BAG_1_GUID       = "281e7a"
+MONEY_BAG_5_GUID       = "4edeac"
+MONEY_BAG_10_GUID      = "2f3adb"
+MONEY_BAG_20_GUID      = "9459d3"
+-- Unit vector away from each seat toward table center (SWNE, parallel to PLAYER_POSITION_ASSET_GROUPS)
+SEAT_ABOVE_DIR = {
+    {x=0, z=1},   -- south (blue)
+    {x=1, z=0},   -- west (yellow)
+    {x=0, z=-1},  -- north (green)
+    {x=-1, z=0},  -- east (purple)
+}
 
 -- Asset groups for each of the 4 player positions.
--- 1st GUID = main player board, 2nd GUID = counters tile, 3rd GUID = "A" VC card.
--- (NOTE these guid mappings are used for calculating marker creation zones, detecting player board proximity)
+-- 1st GUID = main player board, 2nd GUID = counters tile.
+-- (NOTE used for dev cost button attachment and player board proximity detection)
 -- Now includes some assets that are not near the player seat (at end – recruiter)
 -- Remaining GUIDs are default starting cards/tokens for that seat. south=blue, west=yellow, north=green, east=purple
 PLAYER_POSITION_ASSET_GROUPS = {
     {
         label = "south",
-        guids = {"cf7ce4", "a76793", "c35823", "d586bb", "0a3dec", "c8d5a3", "c22f36", "f21813", "1eaeb4", "131c5e", "89c959", "3d02e3", "455985", "0a923f", "6df032", "36e9c7", "560e36", "846b39", "3ec96a", "8d878e", "d32031", "33562e", "354156", "078abb", "830e55", "e54a5d", "d6143d"},
+        guids = {"cf7ce4", "a76793", "c35823", "d586bb", "0a3dec", "c8d5a3", "c22f36", "f21813", "1eaeb4", "131c5e", "89c959", "3d02e3", "455985", "0a923f", "6df032", "36e9c7", "560e36", "846b39", "3ec96a", "8d878e", "079912", "331991", "b9fc35", "02cde5", "1a73cc", "691188", "89cd13"},
     },
     {
         label = "west",
-        guids = {"a2b1bb", "629342", "3aa517", "16568f", "14a0f8", "4c1d8f", "253c5d", "b1f846", "f24cfa", "5b5e31", "4b5411", "cf756d", "b4ad63", "80bce9", "c46283", "6ffe30", "8fc0fb", "c7ad5a", "235928", "db7513", "7de78d", "bfae07", "18b510", "00e34d", "6dc30c", "fa3c38", "0c4650"},
+        guids = {"a2b1bb", "629342", "3aa517", "16568f", "14a0f8", "4c1d8f", "253c5d", "b1f846", "f24cfa", "5b5e31", "4b5411", "cf756d", "b4ad63", "80bce9", "c46283", "6ffe30", "8fc0fb", "c7ad5a", "235928", "db7513", "b66e54", "2e93fd", "c71e6d", "3ffdbf", "c9fa64", "21bca3", "1ee553"},
     },
     {
         label = "north",
-        guids = {"169a56", "bec6ed", "d5d7f4", "2432ff", "74b607", "bd7883", "0db63e", "d110b0", "b23a4f", "ad6628", "3e1b69", "6205f3", "0edcd3", "f3ca34", "6e2572", "41c1f2", "20f2bd", "fccaa8", "72a137", "1dece3", "ab9395", "187e27", "69f11f", "1c1cfa", "1c4af7", "c57ecb", "ade299"},
+        guids = {"169a56", "bec6ed", "d5d7f4", "2432ff", "74b607", "bd7883", "0db63e", "d110b0", "b23a4f", "ad6628", "3e1b69", "6205f3", "0edcd3", "f3ca34", "6e2572", "41c1f2", "20f2bd", "fccaa8", "72a137", "1dece3", "e66086", "ff80a0", "e85556", "aa3cbd", "83bca7", "e40832", "6a996c"},
     },
     {
         label = "east",
-        guids = {"d132c0", "755ddf", "7eadc9", "ae5711", "139135", "c97f31", "d42c25", "334180", "bf7d66", "4ed232", "3f15d3", "ce53f7", "7eda46", "5ca65e", "c62cb5", "625438", "1e999d", "3d7c42", "bc1ae5", "e01746", "ff970c", "6cabb6", "da66d1", "63d621", "6ffb29", "ed723b", "f18a51"},
+        guids = {"d132c0", "755ddf", "7eadc9", "ae5711", "139135", "c97f31", "d42c25", "334180", "bf7d66", "4ed232", "3f15d3", "ce53f7", "7eda46", "5ca65e", "c62cb5", "625438", "1e999d", "3d7c42", "bc1ae5", "e01746", "aef0d0", "593746", "99fb38", "e88a1c", "8eb32b", "138ecd", "f226cc"},
     },
 }
 
@@ -1796,105 +1779,29 @@ function getSeatAssetGroupForPlayerColor(playerColor)
 end
 
 -- (local helper) computes the XZ spawn rectangle for markers near a player's board
-function computeMarkerSpawnRectForPlayer(playerColor)
-    local group = getSeatAssetGroupForPlayerColor(playerColor)
-    if not group or not group.guids then return nil end
-
-    local board = getObjectFromGUID(group.guids[1] or "")
-    local trackingTile = getObjectFromGUID(group.guids[2] or "")
-    local avcCard = getObjectFromGUID(group.guids[3] or "")
-    if not board or not trackingTile or not avcCard then return nil end
-
-    local boardPos = safeGetPosition(board)
-    local tilePos = safeGetPosition(trackingTile)
-    local avcPos = safeGetPosition(avcCard)
-    if not boardPos or not tilePos or not avcPos then return nil end
-
-    local upDx, upDz = normalizePlanar(-(boardPos.x or 0), -(boardPos.z or 0))
-    if upDx == 0 and upDz == 0 then
-        upDx, upDz = normalizePlanar((avcPos.x or 0) - (boardPos.x or 0), (avcPos.z or 0) - (boardPos.z or 0))
+-- Returns a random spawn point in the colour's quarter of the action buffer strip.
+-- Yellow=westmost, Blue=2nd, Green=3rd, Purple=eastmost (divided along X axis).
+function getMarkerSpawnPointInStrip(ownerLabel)
+    local label = string.lower(tostring(ownerLabel or ""))
+    local range = ACTION_BUFFER_MAX_X - ACTION_BUFFER_MIN_X
+    local qMin, qMax
+    if label == "yellow" then
+        qMin = ACTION_BUFFER_MIN_X
+        qMax = ACTION_BUFFER_MIN_X + range * 0.25
+    elseif label == "blue" then
+        qMin = ACTION_BUFFER_MIN_X + range * 0.25
+        qMax = ACTION_BUFFER_MIN_X + range * 0.5
+    elseif label == "green" then
+        qMin = ACTION_BUFFER_MIN_X + range * 0.5
+        qMax = ACTION_BUFFER_MIN_X + range * 0.75
+    else
+        qMin = ACTION_BUFFER_MIN_X + range * 0.75
+        qMax = ACTION_BUFFER_MAX_X
     end
-    if upDx == 0 and upDz == 0 then
-        return nil
-    end
-
-    local rightDx, rightDz = upDz, -upDx
-
-    local tileWidth = select(1, getObjectPlanarSize(trackingTile))
-    local avcWidth, avcDepth = getObjectPlanarSize(avcCard)
-    local avcHeight = math.max(avcWidth, avcDepth)
-
-    local tileRightX = (tilePos.x or 0) + rightDx * (tileWidth * 0.5)
-    local tileRightZ = (tilePos.z or 0) + rightDz * (tileWidth * 0.5)
-    local avcLeftX = (avcPos.x or 0) - rightDx * (avcWidth * 0.5)
-    local avcLeftZ = (avcPos.z or 0) - rightDz * (avcWidth * 0.5)
-
-    local latFromTile = dotPlanar(tileRightX - (avcPos.x or 0), tileRightZ - (avcPos.z or 0), rightDx, rightDz)
-    local latFromAvc = dotPlanar(avcLeftX - (avcPos.x or 0), avcLeftZ - (avcPos.z or 0), rightDx, rightDz)
-    local latMin = math.min(latFromTile, latFromAvc)
-    local latMax = math.max(latFromTile, latFromAvc)
-
-    -- Pull each lateral edge inward slightly so spawn points stay clear of side boundaries.
-    local inset = MARKER_SPAWN_LATERAL_INSET
-    local minSpanAfterInset = 0.20
-    if (latMax - latMin) > ((2 * inset) + minSpanAfterInset) then
-        latMin = latMin + inset
-        latMax = latMax - inset
-    end
-
-    if (latMax - latMin) < 0.20 then
-        local centerLat = (latMin + latMax) * 0.5
-        latMin = centerLat - 0.10
-        latMax = centerLat + 0.10
-    end
-
-    local spanUp = math.max(0.20, (avcHeight * (5.0 / 6.0)) - MARKER_SPAWN_UP_REDUCTION)
-    local upMin = -MARKER_SPAWN_DOWN_SHIFT
-
     return {
-        center = {x = avcPos.x, y = avcPos.y, z = avcPos.z},
-        upDx = upDx,
-        upDz = upDz,
-        rightDx = rightDx,
-        rightDz = rightDz,
-        latMin = latMin,
-        latMax = latMax,
-        upMin = upMin,
-        spanUp = spanUp,
-    }
-end
-
--- (local helper) returns a random unoccupied spawn point for a marker near a player
-function getMarkerSpawnPointForPlayer(playerColor)
-    local rect = computeMarkerSpawnRectForPlayer(playerColor)
-    if not rect then
-        local p = getPlayerByColorSafe(playerColor)
-        local handPos = getPrimaryHandPositionForPlayer(p)
-        if not handPos then return nil end
-        return {
-            x = (handPos.x or 0) + ((math.random() - 0.5) * 0.8),
-            y = (handPos.y or 1) + MARKER_SPAWN_HEIGHT_OFFSET,
-            z = (handPos.z or 0) + ((math.random() - 0.5) * 0.8),
-        }
-    end
-
-    for _ = 1, 16 do
-        local lat = rect.latMin + ((rect.latMax - rect.latMin) * math.random())
-        local up = (rect.upMin or 0) + (rect.spanUp * math.random())
-        local point = {
-            x = (rect.center.x or 0) + (rect.rightDx * lat) + (rect.upDx * up),
-            y = (rect.center.y or 1) + MARKER_SPAWN_HEIGHT_OFFSET,
-            z = (rect.center.z or 0) + (rect.rightDz * lat) + (rect.upDz * up),
-        }
-        if not isMarkerNearPosition(point, MARKER_SPAWN_CLEARANCE) then
-            return point
-        end
-    end
-
-    return {
-        x = (rect.center.x or 0) + (rect.upDx * ((rect.upMin or 0) + (rect.spanUp * 0.5))),
-        y = (rect.center.y or 1) + MARKER_SPAWN_HEIGHT_OFFSET,
-        z = (rect.center.z or 0) + (rect.upDz * ((rect.upMin or 0) + (rect.spanUp * 0.5))),
+        x = qMin + math.random() * (qMax - qMin),
+        y = ACTION_BUFFER_Y,
+        z = ACTION_BUFFER_MIN_Z + math.random() * (ACTION_BUFFER_MAX_Z - ACTION_BUFFER_MIN_Z),
     }
 end
 
@@ -1908,9 +1815,7 @@ function onMarkerMarbleClick(obj, player_color, alt_click)
         return
     end
 
-    local spawnPos = getMarkerSpawnPointForPlayer(player_color)
-    if not spawnPos then return end
-
+    local spawnPos = getMarkerSpawnPointInStrip(designatedOwner)
     local markerName = string.lower(tostring(designatedOwner)) .. " marker"
     spawnDirectMarkerForOwner(designatedOwner, spawnPos, markerName, nil, "marker")
 end
@@ -1922,9 +1827,7 @@ function addMarkerForClicker(player_color, ownerLabel)
         return
     end
 
-    local spawnPos = getMarkerSpawnPointForPlayer(player_color)
-    if not spawnPos then return end
-
+    local spawnPos = getMarkerSpawnPointInStrip(ownerLabel)
     local markerName = string.lower(tostring(ownerLabel)) .. " marker"
     spawnDirectMarkerForOwner(ownerLabel, spawnPos, markerName, nil, "marker")
 end
@@ -2129,6 +2032,23 @@ function getSecondLeftmostSnapWorldPosition(cardObj)
     
     table.sort(sortedSnaps, function(a, b) return a.x < b.x end)
     return sortedSnaps[2].pos
+end
+
+-- Returns the world position of the Nth snap point (1-based, sorted by world X left-to-right).
+function getSnapWorldPositionByIndex(cardObj, index)
+    if not cardObj or not cardObj.getSnapPoints or not index then return nil end
+    local okPoints, points = pcall(function() return cardObj.getSnapPoints() or {} end)
+    if not okPoints or type(points) ~= "table" then return nil end
+    local sorted = {}
+    for _, p in ipairs(points) do
+        if p and p.position then
+            local wp = cardObj.positionToWorld and cardObj.positionToWorld(p.position) or p.position
+            if wp then table.insert(sorted, { pos = wp, x = vecComponent(wp, "x") or 0 }) end
+        end
+    end
+    if #sorted == 0 then return nil end
+    table.sort(sorted, function(a, b) return a.x < b.x end)
+    return sorted[index] and sorted[index].pos or nil
 end
 
 -- (local helper) returns true if a card's yaw is near the auto-marker snap rotation
@@ -2361,6 +2281,99 @@ function finalizeStackCounter(counter, baseGuid, targetPos, targetRot)
     end, 1)
 end
 
+-- Spawns a usage tray from the infinite bag, tints it for ownerLabel, locks it, and calls callback(tray).
+function spawnUsageTrayForBase(baseGuid, targetPos, ownerLabel, callback)
+    local bag = getObjectFromGUID(USAGE_TRAY_BAG_GUID)
+    if not bag then
+        stackLog("spawnUsageTrayForBase: tray bag not found guid=" .. tostring(USAGE_TRAY_BAG_GUID))
+        if callback then callback(nil) end
+        return
+    end
+
+    local tray = bag.takeObject({
+        position = targetPos,
+        rotation = {x = 0, y = 0, z = 0},
+        smooth = false,
+        callback_function = function(obj)
+            if not obj then
+                stackLog("spawnUsageTrayForBase: takeObject returned nil")
+                if callback then callback(nil) end
+                return
+            end
+            obj.addTag(STACK_TRAY_TAG)
+            if obj.setGMNotes then
+                obj.setGMNotes("tray_base_guid:" .. tostring(baseGuid))
+            end
+            local tint = getDirectMarkerTint(ownerLabel)
+            if tint then
+                pcall(function() obj.setColorTint(tint) end)
+            end
+            Wait.frames(function()
+                if obj then
+                    obj.setPosition(targetPos)
+                    obj.setLock(true)
+                end
+                if callback then callback(obj) end
+            end, 1)
+        end,
+    })
+end
+
+function countMarkersInTray(trayObj)
+    if not trayObj then return 0 end
+    local okBounds, bounds = pcall(function() return trayObj.getBounds() end)
+    if not okBounds or not bounds then return 0 end
+    local cx = bounds.center.x
+    local cz = bounds.center.z
+    local hx = bounds.size.x / 2
+    local hz = bounds.size.z / 2
+    local count = 0
+    local okTagged, tagged = pcall(function() return getObjectsWithTag("marker") end)
+    if okTagged and type(tagged) == "table" then
+        for _, o in ipairs(tagged) do
+            local mpos = safeGetPosition(o)
+            if mpos and math.abs(mpos.x - cx) <= hx and math.abs(mpos.z - cz) <= hz then
+                count = count + 1
+            end
+        end
+    end
+    return count
+end
+
+function updateTrayMarkerCount(trayObj)
+    if not trayObj then return end
+    local guid = safeGetGuid(trayObj)
+    if not guid then return end
+    local count = countMarkersInTray(trayObj)
+    TRAY_MARKER_COUNT_BY_GUID[guid] = count
+    local desc = count > 0 and ("count: " .. count) or ""
+    pcall(function() trayObj.setDescription(desc) end)
+end
+
+function refreshTrayMarkerCountsNear(pos)
+    for _, o in ipairs(getAllObjects()) do
+        if safeHasTag(o, STACK_TRAY_TAG) then
+            updateTrayMarkerCount(o)
+        end
+    end
+end
+
+function getTotalMarkersInTraysForOwner(ownerLabel)
+    local total = 0
+    for _, o in ipairs(getAllObjects()) do
+        if safeHasTag(o, STACK_TRAY_TAG) then
+            local trayGuid = safeGetGuid(o)
+            local baseGuid = getStackTrayOwnerGuid(o)
+            if baseGuid and BASE_MARKER_OWNER_BY_BASE_GUID[baseGuid] == ownerLabel then
+                local count = TRAY_MARKER_COUNT_BY_GUID[trayGuid]
+                if count == nil then count = countMarkersInTray(o) end
+                total = total + count
+            end
+        end
+    end
+    return total
+end
+
 function removeStackCounterForBase(baseObj, removeMarkers)
     if not baseObj then return end
     if removeMarkers == nil then removeMarkers = true end
@@ -2369,6 +2382,11 @@ function removeStackCounterForBase(baseObj, removeMarkers)
     for _, obj in ipairs(getAllObjects()) do
         if obj and obj.type ~= "Card" and safeHasTag(obj, STACK_COUNTER_TAG) then
             if getStackCounterOwnerGuid(obj) == baseGuid then
+                obj.destruct()
+            end
+        end
+        if obj and obj.type ~= "Card" and safeHasTag(obj, STACK_TRAY_TAG) then
+            if getStackTrayOwnerGuid(obj) == baseGuid then
                 obj.destruct()
             end
         end
@@ -2417,6 +2435,15 @@ function handleBaseCardCounter(baseObj, ownerLabel, placeMarker, savedState)
         end
     end
 
+    -- Resolve the live tray object that was recorded at pickup.
+    local liveTray = nil
+    if savedState and savedState.trayGuid then
+        local candidate = getObjectFromGUID(savedState.trayGuid)
+        if candidate and safeHasTag(candidate, STACK_TRAY_TAG) then
+            liveTray = candidate
+        end
+    end
+
     -- Move existing marker (preserving owner color) or place a new one if none exists.
     local function resolvedPlaceMarker()
         local effectiveOwner = (savedState and savedState.markerOwner) or ownerLabel or "Neutral"
@@ -2430,17 +2457,25 @@ function handleBaseCardCounter(baseObj, ownerLabel, placeMarker, savedState)
                 local basePos = safeGetPosition(baseObj)
                 if basePos then
                     local snapPos = nil
-                    if safeHasTag(baseObj, "base") and safeHasTag(baseObj, "tech") then
-                        snapPos = getSecondLeftmostSnapWorldPosition(baseObj)
+                    local savedIndex = savedState and savedState.markerSnapIndex
+                    if savedIndex then
+                        snapPos = getSnapWorldPositionByIndex(baseObj, savedIndex)
                     end
                     if not snapPos then
-                        snapPos = getLeftmostSnapWorldPosition(baseObj)
+                        if safeHasTag(baseObj, "base") and safeHasTag(baseObj, "tech") then
+                            snapPos = getSecondLeftmostSnapWorldPosition(baseObj)
+                        else
+                            snapPos = getLeftmostSnapWorldPosition(baseObj)
+                        end
                     end
                     local newPos = makeVec3(
                         vecComponent(snapPos, "x") or vecComponent(basePos, "x") or 0,
                         (vecComponent(basePos, "y") or 1) + 0.35,
                         vecComponent(snapPos, "z") or vecComponent(basePos, "z") or 0
                     )
+                    -- Clear any stale pickup state so a TTS-triggered onObjectDrop on this
+                    -- programmatic setPosition doesn't apply a spurious counter delta.
+                    MARKER_PICKUP_SNAP_STATE_BY_GUID[savedState.markerGuid] = nil
                     pcall(function() stale.setPosition(newPos) end)
                 end
                 savedState.markerGuid = nil
@@ -2540,37 +2575,92 @@ function handleBaseCardCounter(baseObj, ownerLabel, placeMarker, savedState)
         return
     end
 
-    -- Card is eligible for a counter. Clean up any orphaned counters, keeping the live one from pickup.
+    -- Card is eligible for a counter+tray. Clean up any orphaned counters and trays, keeping live ones from pickup.
     local keepGuid = liveCounter and safeGetGuid(liveCounter) or nil
+    local keepTrayGuid = liveTray and safeGetGuid(liveTray) or nil
     for _, o in ipairs(getAllObjects()) do
         if o and o.type ~= "Card" and safeHasTag(o, STACK_COUNTER_TAG) and getStackCounterOwnerGuid(o) == baseGuid then
             if safeGetGuid(o) ~= keepGuid then
                 pcall(function() o.destruct() end)
             end
         end
+        if o and o.type ~= "Card" and safeHasTag(o, STACK_TRAY_TAG) and getStackTrayOwnerGuid(o) == baseGuid then
+            if safeGetGuid(o) ~= keepTrayGuid then
+                pcall(function() o.destruct() end)
+            end
+        end
     end
 
-    -- Place counter above the base card's actual position (snapped to column x).
+    -- Place counter and tray above the base card's actual position (snapped to column x).
     local targetPos = {
         x = slotX + STACK_COUNTER_DX,
         y = STACK_COUNTER_Y,
         z = basePos.z + STACK_COUNTER_DZ
     }
+    local trayTargetPos = {
+        x = slotX + STACK_TRAY_DX,
+        y = STACK_TRAY_Y,
+        z = basePos.z + STACK_TRAY_DZ
+    }
     local targetRot = {x = 0, y = 0, z = 0}
+    local effectiveOwner = (savedState and savedState.markerOwner) or ownerLabel or "Neutral"
 
     if liveCounter then
         -- Move existing counter to the new position; current value is naturally preserved.
-        pcall(function() liveCounter.setLock(false) end)
-        pcall(function() liveCounter.setPosition(targetPos) end)
+        -- Use a single Wait.frames move+lock instead of an immediate unlock to avoid a
+        -- one-frame physics window where the unlocked counter can jostle the settling base card.
         Wait.frames(function()
             local c = getObjectFromGUID(keepGuid)
             if c then
                 c.setLock(false)
                 c.setPosition(targetPos)
                 c.setLock(true)
+                -- Restore the value saved at pickup so any spurious delta from
+                -- physics-triggered events during the move is cancelled out.
+                local savedVal = savedState and savedState.counterValue
+                if savedVal then pcall(function() c.setValue(savedVal) end) end
             end
         end, 1)
         stackLog("moved stack counter to " .. string.format("(%.2f, %.2f, %.2f)", targetPos.x, targetPos.y, targetPos.z) .. " for base guid=" .. tostring(baseGuid))
+
+        -- Move or spawn tray alongside counter.
+        if liveTray then
+            Wait.frames(function()
+                local t = getObjectFromGUID(keepTrayGuid)
+                if t then
+                    -- Collect markers resting in the tray so they can follow it
+                    local curPos = t.getPosition()
+                    local markerOffsets = {}
+                    for _, o in ipairs(getAllObjects()) do
+                        if safeHasTag(o, "marker") or safeHasTag(o, STACK_BASE_MARKER_TAG) then
+                            local mpos = o.getPosition()
+                            local dx = mpos.x - curPos.x
+                            local dz = mpos.z - curPos.z
+                            if math.sqrt(dx*dx + dz*dz) <= 2.0 then
+                                table.insert(markerOffsets, {obj = o, dx = dx, dy = mpos.y - curPos.y, dz = dz})
+                            end
+                        end
+                    end
+                    t.setLock(false)
+                    t.setPosition(trayTargetPos)
+                    t.setLock(true)
+                    for _, entry in ipairs(markerOffsets) do
+                        pcall(function()
+                            entry.obj.setPosition({
+                                x = trayTargetPos.x + entry.dx,
+                                y = trayTargetPos.y + entry.dy,
+                                z = trayTargetPos.z + entry.dz,
+                            })
+                        end)
+                    end
+                    updateTrayMarkerCount(t)
+                end
+            end, 1)
+            stackLog("moved stack tray to " .. string.format("(%.2f, %.2f, %.2f)", trayTargetPos.x, trayTargetPos.y, trayTargetPos.z) .. " for base guid=" .. tostring(baseGuid))
+        elseif placeMarker then
+            spawnUsageTrayForBase(baseGuid, trayTargetPos, effectiveOwner, nil)
+        end
+
         if placeMarker then resolvedPlaceMarker() end
         return
     end
@@ -2602,6 +2692,7 @@ function handleBaseCardCounter(baseObj, ownerLabel, placeMarker, savedState)
     if counter then
         finalizeStackCounter(counter, baseGuid, targetPos, targetRot)
         stackLog("spawned stack counter for base guid=" .. tostring(baseGuid) .. " targeting " .. string.format("(%.2f, %.2f, %.2f)", targetPos.x, targetPos.y, targetPos.z))
+        if placeMarker then spawnUsageTrayForBase(baseGuid, trayTargetPos, effectiveOwner, nil) end
         if placeMarker then resolvedPlaceMarker() end
     else
         stackLog("template clone failed for base guid=" .. tostring(baseGuid) .. " err=" .. tostring(cloneErr))
@@ -2725,13 +2816,18 @@ STACK_DZ_MULTIPLE = 5
 STACK_COLUMNS = 8
 STACK_ROWS = 10
 STACK_COUNTER_DX = 0.10
-STACK_COUNTER_DZ = 2.05
+STACK_COUNTER_DZ = 2.1
 STACK_COUNTER_Y = 1.23
+STACK_TRAY_DX = 0.04
+STACK_TRAY_DZ = 3.41
+STACK_TRAY_Y = 1.36
+USAGE_TRAY_BAG_GUID = "a78baf"
 STACK_IMPROVEMENT_DY = 0.02
 STACK_IMPROVEMENT_LAYER_DY = 0.04   -- increased from 0.005 for visible separation between improvement layers
 AUTOMARKER_BOUNDARY_Z = -21.4
 PROJECT_CONVENIENCE_DZ = 0.6
 STACK_PROJECT_SNAP_ROTATION = {x = 0, y = 0, z = 0}
+DZ_TRAY = 1.8                       -- Z offset reserved above counters for usage trays
 
 HAND_REARRANGE_GUIDS = {}           -- [guid] = true for cards lifted from a hand zone (suppress re-rotation on re-entry)
 HAND_PENDING_ROTATION_TOKEN = {}    -- [guid] monotonic token to cancel stale delayed hand-rotation callbacks
@@ -5565,6 +5661,12 @@ function onObjectDrop(player_color, obj)
         end, 2)
     end
 
+    if safeHasTag(obj, "cash") then
+        ensureCashContextMenu(obj)
+        local dropPos = safeGetPosition(obj)
+        Wait.frames(function() refreshCashTooltipsNear(dropPos) end, 2)
+    end
+
     if droppedGuid == ROUND_MARKER_GUID then
         local markerPos = safeGetPosition(obj)
         local pickupPos = ROUND_MARKER_PICKUP_POS
@@ -5582,7 +5684,8 @@ function onObjectDrop(player_color, obj)
             ResetActionMarkers()
             broadcastToAll("Round advanced", {0.8, 0.95, 0.8})
         end
-        if markerPos and math.abs((markerPos.z or 0) - ROUND3_MARKER_Z) <= ROUND3_MARKER_Z_TOLERANCE then
+        local r3z = IS_BASIC_MODE and ROUND3_MARKER_Z_BASIC or ROUND3_MARKER_Z
+        if markerPos and math.abs((markerPos.z or 0) - r3z) <= ROUND3_MARKER_Z_TOLERANCE then
             Wait.frames(function()
                 collectRound3StartingBasesIfEligible()
             end, 1)
@@ -5646,10 +5749,12 @@ function onObjectDrop(player_color, obj)
         end
     end
 
-    -- Disabled: do not nudge money chips on drop during play (only onLoad).
-    -- if isPossibleMoneyChipObject(obj) then
-    --     queueMoneyChipRefreshAfterSettle(obj, {1, 6, 20})
-    -- end
+    if droppedGuid and safeHasTag(obj, "marker") then
+        local markerDropPos = safeGetPosition(obj)
+        if markerDropPos then
+            Wait.frames(function() refreshTrayMarkerCountsNear(markerDropPos) end, 2)
+        end
+    end
 
     local isImprovement = false
     local isBase = false
@@ -6513,6 +6618,20 @@ function attachTagMenu(deck, tagString)
     end)
 end
 
+function validatePlayerPositionGuids()
+    local missing = {}
+    for _, group in ipairs(PLAYER_POSITION_ASSET_GROUPS) do
+        for _, guid in ipairs(group.guids) do
+            if not getObjectFromGUID(guid) then
+                table.insert(missing, guid .. " (" .. (group.label or "?") .. ")")
+            end
+        end
+    end
+    if #missing > 0 then
+        broadcastToAll("PLAYER_POSITION_ASSET_GROUPS missing GUIDs: " .. table.concat(missing, ", "), {1, 0.2, 0.2})
+    end
+end
+
 function onLoad(saved_state)
     if saved_state and saved_state ~= "" then
         local okDecode, decoded = pcall(function()
@@ -6569,7 +6688,6 @@ function onLoad(saved_state)
     if isGameStartedWithRoster() then
         attachMarkerSpawnMenu()
     end
-    attachBoardSnapSyncMenus()
     -- Defer deck locking until physics has fully settled. Calling setLock(true) during
     -- the initial physics settle pass freezes decks mid-air, causing the discard deck
     -- to float progressively higher on each reload. Waiting lets gravity pull any
@@ -6591,17 +6709,6 @@ function onLoad(saved_state)
     Wait.frames(function()
         refreshPassHudSafe("onLoad-post-xml3")
     end, 320)
-
-    -- Reload safety pass: money chips can intermittently fail to render until nudged.
-    Wait.frames(function()
-        refreshVisibleMoneyChipsOnTable()
-    end, 12)
-    Wait.frames(function()
-        refreshVisibleMoneyChipsOnTable()
-    end, 60)
-    Wait.frames(function()
-        refreshVisibleMoneyChipsOnTable()
-    end, 180)
 
     -- Attach fix-improvement menus to all base cards and eligible decks already on the table.
     Wait.frames(function()
@@ -6628,7 +6735,17 @@ function onLoad(saved_state)
         end
     end, 10)
 
+    -- Attach cash context menus to all bills already on the table at load time.
+    Wait.frames(function()
+        for _, obj in ipairs(getObjectsWithTag("cash")) do
+            pcall(function() ensureCashContextMenu(obj) end)
+        end
+    end, 5)
+
     marketLog("onLoad complete. placeholders configured=" .. tostring(#MARKET_PLACEHOLDER_GUIDS))
+    Wait.frames(function()
+        if not isGameStartedWithRoster() then validatePlayerPositionGuids() end
+    end, 30)
 end
 
 -- (local helper) returns the first unoccupied playable seat color
@@ -7035,7 +7152,11 @@ function swapTrackerTileFull()
 end
 
 function deleteFullTilesBasic()
-    for _, guid in ipairs({FULL_MARKET_TILE_GUID, FULL_TRACKER_TILE_GUID}) do
+    local guids = {FULL_MARKET_TILE_GUID, FULL_TRACKER_TILE_GUID}
+    for _, guid in ipairs(PLAYER_BOARD_FULL_GUIDS) do
+        table.insert(guids, guid)
+    end
+    for _, guid in ipairs(guids) do
         local obj = getObjectFromGUID(guid)
         if obj then pcall(function() obj.destruct() end) end
     end
@@ -7045,6 +7166,62 @@ function deleteFullGameCoins()
     for _, guid in ipairs(TENCOIN_GUIDS) do
         local obj = getObjectFromGUID(guid)
         if obj then pcall(function() obj.destruct() end) end
+    end
+    -- Refresh tooltips on all remaining bills so pool totals no longer include the deleted coins.
+    Wait.frames(function()
+        local processed = {}
+        for _, obj in ipairs(getObjectsWithTag("cash")) do
+            local g = safeGetGuid(obj)
+            if g and not processed[g] then
+                local pool = getCashPool(obj)
+                updateCashTooltips(pool)
+                for pg in pairs(pool) do processed[pg] = true end
+            end
+        end
+    end, 2)
+end
+
+function swapPlayerBoardsFull()
+    for i, group in ipairs(PLAYER_POSITION_ASSET_GROUPS) do
+        local fullGuid  = PLAYER_BOARD_FULL_GUIDS[i]
+        local basicGuid = group.guids[1]
+        if not fullGuid or fullGuid == "xxxxxx" then
+            startLog("swapPlayerBoardsFull: full GUID not set for index=" .. tostring(i))
+        else
+            group.guids[1] = fullGuid
+            local basicBoard = getObjectFromGUID(basicGuid)
+            local fullBoard  = getObjectFromGUID(fullGuid)
+            if basicBoard and fullBoard then
+                local pos, rot
+                local ok = pcall(function()
+                    pos = basicBoard.getPosition()
+                    rot = basicBoard.getRotation()
+                end)
+                if ok and pos and rot then
+                    local savedPos = {x = pos.x, y = pos.y, z = pos.z}
+                    local savedRot = {x = rot.x, y = rot.y, z = rot.z}
+                    pcall(function()
+                        fullBoard.setLock(false)
+                        basicBoard.destruct()
+                    end)
+                    Wait.frames(function()
+                        local live = getObjectFromGUID(fullGuid)
+                        if live then
+                            pcall(function()
+                                live.setPosition(savedPos)
+                                live.setRotation({x = 0, y = savedRot.y, z = 0})
+                            end)
+                        end
+                    end, 5)
+                else
+                    startLog("swapPlayerBoardsFull: could not read basic board transform index=" .. tostring(i))
+                end
+            elseif not fullBoard then
+                startLog("swapPlayerBoardsFull: full board not found guid=" .. tostring(fullGuid))
+            else
+                startLog("swapPlayerBoardsFull: basic board not found guid=" .. tostring(basicGuid) .. " (may already be removed)")
+            end
+        end
     end
 end
 
@@ -7706,6 +7883,7 @@ function doStartGame(player_color, isBasicMode)
     runStartStep("setup analyst cards", function() setupAnalystCards(isBasicMode) end)
 
     if not isBasicMode then
+        runStartStep("swap player boards full", function() swapPlayerBoardsFull() end)
         runStartStep("swap upgrade cards full",  function() setupUpgradeCardsFull(seated) end)
         runStartStep("slide trackers full",      function() slideTrackersFull(#seated == 1) end)
         runStartStep("swap market tile full",    function() swapMarketTileFull() end)
@@ -7889,6 +8067,12 @@ function onObjectPickUp(player_color, obj)
     if not obj then return end
     if START_GAME_SETUP_IN_PROGRESS then return end
 
+    if safeHasTag(obj, "cash") then
+        local pickupPos = safeGetPosition(obj)
+        pcall(function() obj.setDescription("") end)
+        Wait.frames(function() refreshCashTooltipsNear(pickupPos) end, 2)
+    end
+
     local pickupType = safeGetType(obj)
     local pickupGuid = safeGetGuid(obj)
 
@@ -7907,6 +8091,7 @@ function onObjectPickUp(player_color, obj)
         if pickupGuid then
             local counterGuid = nil
             local markerGuid = nil
+            local trayGuid = nil
             for _, o in ipairs(getAllObjects()) do
                 if o and safeGetType(o) ~= "Card" and safeHasTag(o, STACK_COUNTER_TAG)
                         and getStackCounterOwnerGuid(o) == pickupGuid then
@@ -7921,15 +8106,44 @@ function onObjectPickUp(player_color, obj)
                     break
                 end
             end
+            for _, o in ipairs(getAllObjects()) do
+                if o and safeGetType(o) ~= "Card" and safeHasTag(o, STACK_TRAY_TAG)
+                        and getStackTrayOwnerGuid(o) == pickupGuid then
+                    trayGuid = safeGetGuid(o)
+                    break
+                end
+            end
+            local markerSnapIndex = nil
+            if markerGuid then
+                local markerObj = getObjectFromGUID(markerGuid)
+                if markerObj then
+                    local mpos = safeGetPosition(markerObj)
+                    markerSnapIndex = mpos and getSnapIndexForPosition(obj, mpos)
+                end
+            end
+            local counterValue = nil
+            if counterGuid then
+                local counterObj = getObjectFromGUID(counterGuid)
+                if counterObj then
+                    local ok, v = pcall(function() return counterObj.getValue() end)
+                    if ok and type(v) == "number" then counterValue = v end
+                end
+            end
             BASE_PICKUP_STATE_BY_GUID[pickupGuid] = {
-                pickupPos   = safeGetPosition(obj),
-                counterGuid = counterGuid,
-                markerGuid  = markerGuid,
-                markerOwner = BASE_MARKER_OWNER_BY_BASE_GUID[pickupGuid],
+                pickupPos      = safeGetPosition(obj),
+                counterGuid    = counterGuid,
+                counterValue   = counterValue,
+                markerGuid     = markerGuid,
+                markerSnapIndex = markerSnapIndex,
+                trayGuid       = trayGuid,
+                markerOwner    = BASE_MARKER_OWNER_BY_BASE_GUID[pickupGuid],
             }
             stackLog("base pickup: recorded state guid=" .. tostring(pickupGuid)
                 .. " counterGuid=" .. tostring(counterGuid)
+                .. " counterValue=" .. tostring(counterValue)
                 .. " markerGuid=" .. tostring(markerGuid)
+                .. " markerSnapIndex=" .. tostring(markerSnapIndex)
+                .. " trayGuid=" .. tostring(trayGuid)
                 .. " markerOwner=" .. tostring(BASE_MARKER_OWNER_BY_BASE_GUID[pickupGuid]))
         end
     end
@@ -7959,6 +8173,13 @@ function onObjectPickUp(player_color, obj)
                     .. " baseGuid=" .. tostring(baseGuid)
                     .. " snapIndex=" .. tostring(snapIndex))
             end
+        end
+    end
+
+    if pickupGuid and safeHasTag(obj, "marker") then
+        local markerPickupPos = safeGetPosition(obj)
+        if markerPickupPos then
+            Wait.frames(function() refreshTrayMarkerCountsNear(markerPickupPos) end, 2)
         end
     end
 
@@ -8217,6 +8438,33 @@ function isPosInStackAreaBounds(pos)
     return pos.x >= minX and pos.x <= maxX and pos.z <= maxZ and pos.z >= minZ
 end
 
+function onObjectDropped(colorName, obj)
+    if not obj or not safeHasTag(obj, "cash") then return end
+    local pos = safeGetPosition(obj)
+    if not pos then return end
+    -- Adopt orientation of the nearest bill in stack radius so dropped bills
+    -- blend with an existing stack.
+    for _, other in ipairs(getObjectsWithTag("cash")) do
+        if other ~= obj then
+            local op = safeGetPosition(other)
+            if op then
+                local dx = op.x - pos.x
+                local dz = op.z - pos.z
+                if math.sqrt(dx*dx + dz*dz) <= BILL_STACK_RADIUS then
+                    local okRot, rot = pcall(function() return other.getRotation() end)
+                    if okRot and rot then
+                        pcall(function() obj.setRotation({x=0, y=rot.y, z=0}) end)
+                        return
+                    end
+                end
+            end
+        end
+    end
+    -- No bills nearby — face toward the nearest player seat.
+    local fallback = getBillRotationForPosition(pos)
+    pcall(function() obj.setRotation(fallback) end)
+end
+
 function onObjectSpawn(obj)
     local objGuid = safeGetGuid(obj)
 
@@ -8229,19 +8477,14 @@ function onObjectSpawn(obj)
                 attachSnapPatternMenus(liveObj)
             end
             attachFixImprovementsMenus(liveObj)
+            if safeHasTag(liveObj, "cash") then
+                ensureCashContextMenu(liveObj)
+            end
         end)
         if not okSpawnMenus then
             stackLog("onObjectSpawn menu attach failed guid=" .. tostring(objGuid) .. " err=" .. tostring(spawnMenusErr))
         end
     end, 1)
-
-    -- Disabled: do not nudge money chips on spawn during play (only onLoad).
-    -- if objGuid then
-    --     local liveObjNow = getObjectFromGUID(objGuid)
-    --     if liveObjNow and isPossibleMoneyChipObject(liveObjNow) then
-    --         queueMoneyChipRefreshAfterSettle(liveObjNow, {1, 6, 20})
-    --     end
-    -- end
 
     -- Post-merge directional split: when TTS merges dev cards into a deck outside
     -- allowed zones, extract the dragged card and offset it by DEV_ANTI_MERGE_DX
@@ -9379,78 +9622,6 @@ function addDevSnapsRight(cardObj, player_color)
     addDevSnapsInDirection(cardObj, 1, player_color)
 end
 
--- (local helper) copies snap points from a source board to all other player boards
-function syncBoardSnapPointsFromSource(sourceGuid, player_color)
-    local srcGuid = tostring(sourceGuid or "")
-    if srcGuid == "" then
-        debugBroadcastToColor("Source GUID is required for board snap sync", player_color or "White")
-        return false
-    end
-
-    local srcObj = getObjectFromGUID(srcGuid)
-    if not srcObj then
-        debugBroadcastToColor("Source board not found: " .. srcGuid, player_color or "White")
-        return false
-    end
-
-    local srcSnapPoints = srcObj.getSnapPoints() or {}
-    local updated = 0
-    local skipped = 0
-    local missing = 0
-    local seen = {}
-
-    for _, boardSpec in pairs(BOARD_CAMERA_BY_PRESET) do
-        local guid = boardSpec and boardSpec.guid or nil
-        if guid and not seen[guid] then
-            seen[guid] = true
-
-            if guid == srcGuid then
-                skipped = skipped + 1
-            else
-                local boardObj = getObjectFromGUID(guid)
-                if boardObj and boardObj.setSnapPoints then
-                    boardObj.setSnapPoints(JSON.decode(JSON.encode(srcSnapPoints)))
-                    updated = updated + 1
-                else
-                    missing = missing + 1
-                    debugPrint("[BOARD] snap sync target missing or unsupported guid=" .. tostring(guid))
-                end
-            end
-        end
-    end
-
-    debugBroadcastToColor(
-        "Board snap sync complete from " .. srcGuid .. ": updated=" .. tostring(updated) .. ", skipped=" .. tostring(skipped) .. ", missing=" .. tostring(missing),
-        player_color or "White"
-    )
-
-    return true
-end
-
-function applyBoardSnapPointsFromBoard1(player_color)
-    if not EDIT_MODE then
-        broadcastToColor("Enable EDIT_MODE before syncing board snap points", player_color or "White")
-        return
-    end
-
-    syncBoardSnapPointsFromSource("7f0dd5", player_color) -- needs updated model guid to reuse this routine
-end
-
-function attachBoardSnapSyncMenus()
-    for _, boardSpec in pairs(BOARD_CAMERA_BY_PRESET) do
-        local guid = boardSpec and boardSpec.guid or nil
-        if guid and not BOARD_SNAP_MENU_ATTACHED_BY_GUID[guid] then
-            local boardObj = getObjectFromGUID(guid)
-            if boardObj then
-                boardObj.addContextMenuItem("Sync board snaps from source (7f0dd5)", function(player_color)
-                    applyBoardSnapPointsFromBoard1(player_color)
-                end)
-                BOARD_SNAP_MENU_ATTACHED_BY_GUID[guid] = true
-            end
-        end
-    end
-end
-
 -- Extracts all improvement-tagged cards from the tech deck to a position
 -- EXTRACT_CARD_DX units to the right of the deck. Edit mode only.
 function extractImprovementsFromDeck(player_color)
@@ -9532,6 +9703,341 @@ end
 
 
 -- ============================================================
+-- ** Cash / bill system **
+-- ============================================================
+
+_cashMenuInitialized = {}  -- GUID → true once context menu items attached
+_cashDialogState     = {}  -- {playerColor, mode ("spend"|"collect"), seedGuid}
+_cashDialogAmount    = 0   -- current amount shown in cash dialog
+
+function getBillValue(obj)
+    local ok, name = pcall(function() return obj.getName() end)
+    return (ok and tonumber((name or ""):match("%d+")) or 0)
+end
+
+-- BFS flood-fill: all "cash" bills within BILL_STACK_RADIUS of each other reachable from seed
+function getCashStackComponent(seedObj)
+    local pool  = {}
+    local queue = {}
+    local sg = safeGetGuid(seedObj)
+    if not sg then return pool end
+    pool[sg] = seedObj
+    table.insert(queue, seedObj)
+    while #queue > 0 do
+        local cur = table.remove(queue)
+        local cp  = safeGetPosition(cur)
+        if not cp then break end
+        for _, obj in ipairs(getObjectsWithTag("cash")) do
+            local g = safeGetGuid(obj)
+            if g and not pool[g] then
+                local op = safeGetPosition(obj)
+                if op then
+                    local dx = cp.x - op.x
+                    local dz = cp.z - op.z
+                    if math.sqrt(dx*dx + dz*dz) <= BILL_STACK_RADIUS then
+                        pool[g] = obj
+                        table.insert(queue, obj)
+                    end
+                end
+            end
+        end
+    end
+    return pool
+end
+
+-- Bills within the cash-detection zone above seat boardIndex's player board
+function getCashInBoardZone(boardIndex)
+    local group = PLAYER_POSITION_ASSET_GROUPS[boardIndex]
+    if not group then return {} end
+    local boardObj = getObjectFromGUID(group.guids[1])
+    if not boardObj then return {} end
+    local bpos = safeGetPosition(boardObj)
+    if not bpos then return {} end
+
+    local dir = SEAT_ABOVE_DIR[boardIndex]
+    local halfAbove, halfPerp = 8, 12  -- fallback if getBounds fails
+    local ok, bounds = pcall(function() return boardObj.getBounds() end)
+    if ok and bounds and bounds.size then
+        if dir.x ~= 0 then
+            halfAbove = bounds.size.x / 2
+            halfPerp  = bounds.size.z / 2
+        else
+            halfAbove = bounds.size.z / 2
+            halfPerp  = bounds.size.x / 2
+        end
+    end
+
+    local found = {}
+    for _, obj in ipairs(getObjectsWithTag("cash")) do
+        local g = safeGetGuid(obj)
+        if g then
+            local op = safeGetPosition(obj)
+            if op then
+                local dx    = op.x - bpos.x
+                local dz    = op.z - bpos.z
+                local above = dx * dir.x + dz * dir.z
+                local perp  = math.abs(dx * dir.z - dz * dir.x)
+                if above >= 0 and above <= halfAbove + DZ_CASH_DETECTION and perp <= halfPerp then
+                    found[g] = obj
+                end
+            end
+        end
+    end
+    return found
+end
+
+-- Union: stack component from seed + any board zone that contains a pool member
+function getCashPool(seedObj)
+    local pool = getCashStackComponent(seedObj)
+    for i = 1, #PLAYER_POSITION_ASSET_GROUPS do
+        local zone = getCashInBoardZone(i)
+        local hit  = false
+        for g in pairs(pool) do
+            if zone[g] then hit = true; break end
+        end
+        if hit then
+            for g, obj in pairs(zone) do pool[g] = obj end
+        end
+    end
+    return pool
+end
+
+function sumPool(pool)
+    local total = 0
+    for _, obj in pairs(pool) do total = total + getBillValue(obj) end
+    return total
+end
+
+-- Update description on every bill in pool; clear lone bills
+function updateCashTooltips(pool)
+    local count = 0
+    for _ in pairs(pool) do count = count + 1 end
+    local total = sumPool(pool)
+    for _, obj in pairs(pool) do
+        local desc = count > 1 and ("total cash: $" .. total) or ""
+        pcall(function() obj.setDescription(desc) end)
+    end
+end
+
+-- Recalculate all pools near a world position (covers drop + remaining stack after pickup)
+function refreshCashTooltipsNear(pos)
+    if not pos then return end
+    local RADIUS = math.max(BILL_STACK_RADIUS * 3, DZ_CASH_DETECTION + 20)
+    local processed = {}
+    for _, obj in ipairs(getObjectsWithTag("cash")) do
+        local g  = safeGetGuid(obj)
+        if g and not processed[g] then
+            local op = safeGetPosition(obj)
+            if op then
+                local dx = op.x - pos.x
+                local dz = op.z - pos.z
+                if math.sqrt(dx*dx + dz*dz) <= RADIUS then
+                    local pool = getCashPool(obj)
+                    updateCashTooltips(pool)
+                    for pg in pairs(pool) do processed[pg] = true end
+                end
+            end
+        end
+    end
+end
+
+-- Add Spend / Collect context menu items to a bill (idempotent)
+function ensureCashContextMenu(obj)
+    local g = safeGetGuid(obj)
+    if not g or _cashMenuInitialized[g] then return end
+    _cashMenuInitialized[g] = true
+    pcall(function()
+        obj.addContextMenuItem("Spend cash...",   function(pc) openCashDialog(pc, obj, "spend")   end)
+        obj.addContextMenuItem("Collect cash...", function(pc) openCashDialog(pc, obj, "collect") end)
+    end)
+end
+
+function openCashDialog(playerColor, seedObj, mode)
+    local g = safeGetGuid(seedObj)
+    if not g then return end
+    _cashDialogState  = {playerColor = playerColor, mode = mode, seedGuid = g}
+    _cashDialogAmount = 0
+    local title = mode == "spend" and "Spend Cash" or "Collect Cash"
+    if mode == "spend" then
+        local pool  = getCashPool(seedObj)
+        local total = sumPool(pool)
+        title = title .. " (have $" .. total .. ")"
+    end
+    pcall(function()
+        UI.setAttribute("cash_dialog_title",  "text", title)
+        UI.setAttribute("cash_dialog_amount", "text", "$0")
+        UI.setAttribute("cash_dialog", "visibility", playerColor)
+        UI.setAttribute("cash_dialog", "active", "true")
+    end)
+end
+
+function closeCashDialog()
+    pcall(function()
+        UI.setAttribute("cash_dialog", "active", "false")
+        UI.setAttribute("cash_dialog", "visibility", "")
+    end)
+    _cashDialogState = {}
+end
+
+function onCashDialogCancel(playerColor, value, id)
+    closeCashDialog()
+end
+
+function adjustCashDialogAmount(delta)
+    _cashDialogAmount = math.max(0, (_cashDialogAmount or 0) + delta)
+    pcall(function()
+        UI.setAttribute("cash_dialog_amount", "text", "$" .. _cashDialogAmount)
+    end)
+end
+
+function onCashDlgAdd1(p,v,id) adjustCashDialogAmount(1)  end
+function onCashDlgAdd5(p,v,id) adjustCashDialogAmount(5)  end
+function onCashDlgSub1(p,v,id) adjustCashDialogAmount(-1) end
+function onCashDlgSub5(p,v,id) adjustCashDialogAmount(-5) end
+
+-- Greedy bill breakdown: largest denominations first
+function makeBillBreakdown(amount)
+    local bills = {}
+    local rem   = amount
+    for _, d in ipairs({20, 10, 5, 1}) do
+        local n = math.floor(rem / d)
+        if n > 0 then bills[d] = n; rem = rem - n * d end
+    end
+    return bills
+end
+
+function getBillRotationForPosition(pos)
+    if not pos then return {x=0, y=0, z=0} end
+    local bestIndex = 1
+    local bestDist  = nil
+    for i, group in ipairs(PLAYER_POSITION_ASSET_GROUPS) do
+        local boardObj = getObjectFromGUID(group.guids[1])
+        if boardObj then
+            local bpos = safeGetPosition(boardObj)
+            if bpos then
+                local dx = (bpos.x or 0) - (pos.x or 0)
+                local dz = (bpos.z or 0) - (pos.z or 0)
+                local d2 = dx*dx + dz*dz
+                if not bestDist or d2 < bestDist then
+                    bestDist  = d2
+                    bestIndex = i
+                end
+            end
+        end
+    end
+    local dir = SEAT_ABOVE_DIR[bestIndex]
+    if not dir then return {x=0, y=0, z=0} end
+    -- atan2(x,z)+180 maps SEAT_ABOVE_DIR vectors to seat-facing yaw:
+    -- south/blue {0,1}→180, west/yellow {1,0}→270, north/green {0,-1}→0, east/purple {-1,0}→90
+    local yaw = (math.deg(math.atan2(dir.x, dir.z)) + 180) % 360
+    return {x=0, y=yaw, z=0}
+end
+
+function placeBillsFromBag(bagGuid, count, basePos, rotation)
+    local bag = getObjectFromGUID(bagGuid)
+    if not bag or count <= 0 then return end
+    local rot = rotation or getBillRotationForPosition(basePos)
+    for i = 1, count do
+        local offset = (i - 1) * 0.15
+        pcall(function()
+            bag.takeObject({
+                position         = {x = basePos.x + math.random(-1,1)*0.5, y = basePos.y + 1 + offset, z = basePos.z + math.random(-1,1)*0.5},
+                rotation         = rot,
+                smooth           = false,
+                callback_function = function(newObj)
+                    Wait.frames(function()
+                        local live = newObj
+                        if not live then return end
+                        ensureCashContextMenu(live)
+                        refreshCashTooltipsNear(safeGetPosition(live))
+                    end, 10)
+                end,
+            })
+        end)
+    end
+end
+
+BILL_BAG_BY_DENOM = nil  -- lazily built
+function getBillBagByDenom()
+    if not BILL_BAG_BY_DENOM then
+        BILL_BAG_BY_DENOM = {
+            [1]  = MONEY_BAG_1_GUID,
+            [5]  = MONEY_BAG_5_GUID,
+            [10] = MONEY_BAG_10_GUID,
+            [20] = MONEY_BAG_20_GUID,
+        }
+    end
+    return BILL_BAG_BY_DENOM
+end
+
+function onCashDialogOK(player, value, id)
+    local state = _cashDialogState
+    local pc = (state and state.playerColor) or "White"
+    closeCashDialog()
+
+    local amount = math.floor(_cashDialogAmount or 0)
+    if amount <= 0 then
+        broadcastToAll("Select an amount greater than zero.", pc)
+        return
+    end
+
+    local seedObj = state.seedGuid and getObjectFromGUID(state.seedGuid)
+    if not seedObj then
+        broadcastToAll("Could not find cash source.", pc)
+        return
+    end
+    local seedPos  = safeGetPosition(seedObj) or {x=0, y=2, z=0}
+    local seedYRot = nil
+    pcall(function()
+        local r = seedObj.getRotation()
+        seedYRot = {x=0, y=r.y, z=0}
+    end)
+
+    if state.mode == "collect" then
+        -- Pull $amount from bags and drop near seed
+        local existingTotal = sumPool(getCashPool(seedObj))
+        local breakdown = makeBillBreakdown(amount)
+        local bagMap    = getBillBagByDenom()
+        for denom, count in pairs(breakdown) do
+            placeBillsFromBag(bagMap[denom], count, seedPos, seedYRot)
+        end
+        broadcastToAll("Collected $" .. amount .. ", new total $" .. (existingTotal + amount) .. ".", pc)
+
+    elseif state.mode == "spend" then
+        -- Take all bills from pool, return to bags, pull back change
+        local pool  = getCashPool(seedObj)
+        local total = sumPool(pool)
+        if total < amount then
+            broadcastToAll("Not enough cash (have $" .. total .. ", need $" .. amount .. ").", pc)
+            return
+        end
+        -- Return pool to bags
+        local bagMap = getBillBagByDenom()
+        for _, obj in pairs(pool) do
+            local denom = getBillValue(obj)
+            local bag   = bagMap[denom] and getObjectFromGUID(bagMap[denom])
+            if bag then
+                pcall(function()
+                    obj.setDescription("")
+                    bag.putObject(obj)
+                end)
+            end
+        end
+        -- Pull change back
+        local change = total - amount
+        if change > 0 then
+            local breakdown = makeBillBreakdown(change)
+            Wait.frames(function()
+                for denom, count in pairs(breakdown) do
+                    placeBillsFromBag(bagMap[denom], count, seedPos, seedYRot)
+                end
+            end, 3)
+        end
+        broadcastToAll("Spent $" .. amount .. (change > 0 and (", remaining $" .. change) or "") .. ".", pc)
+    end
+end
+
+-- ============================================================
 -- ** EDIT_MODE reserve-object show/hide utility **
 -- Chat commands (EDIT_MODE only):
 --   showobj <name>  — bring named object to its on-table position
@@ -9558,12 +10064,34 @@ RESERVE_OBJECT_REGISTRY = {
     },
     trackerfull = {
         guid          = FULL_TRACKER_TILE_GUID,
-        show_pos      = {x = -27, y = 2.0, z = -34},
+        show_pos      = {x = -27, y = 2.0, z = -21},
         show_ref_guid = TRACKER_BOARD_GUID,  -- borrow Y from the basic tracker board
         hide_pos      = {x = 130, y = 2.0, z = 10},
     },
-    -- Add further entries here. Stagger hide_pos.z (e.g. z=20, z=30 ...) so each
-    -- object has its own lane at X=130 and is easy to camera-pan to.
+    bluefull = {
+        guid          = "29716c",
+        show_pos      = {x = -27, y = 2.0, z = -21},
+        show_ref_guid = "cf7ce4",
+        hide_pos      = {x = 130, y = 2.0, z = 20},
+    },
+    yellowfull = {
+        guid          = "faaeb0",
+        show_pos      = {x = -27, y = 2.0, z = -21},
+        show_ref_guid = "a2b1bb",
+        hide_pos      = {x = 130, y = 2.0, z = 30},
+    },
+    greenfull = {
+        guid          = "0416d6",
+        show_pos      = {x = -27, y = 2.0, z = -21},
+        show_ref_guid = "169a56",
+        hide_pos      = {x = 130, y = 2.0, z = 40},
+    },
+    purplefull = {
+        guid          = "51daec",
+        show_pos      = {x = -27, y = 2.0, z = -21},
+        show_ref_guid = "d132c0",
+        hide_pos      = {x = 130, y = 2.0, z = 50},
+    },
 }
 
 function getReserveNames()
@@ -9586,16 +10114,28 @@ function handleShowObj(name, player_color)
     end
     local sp = entry.show_pos or {x = 0, y = 2.0, z = 0}
     local showY = sp.y or 2.0
-    if entry.show_ref_guid then
+    if entry.use_ref_pos and entry.show_ref_guid then
+        local ref = getObjectFromGUID(entry.show_ref_guid)
+        if ref then
+            local okR, rPos = pcall(function() return ref.getPosition() end)
+            if okR and rPos then
+                sp = {x = rPos.x, y = rPos.y, z = rPos.z}
+                showY = rPos.y
+            end
+        end
+    elseif entry.show_ref_guid then
         local ref = getObjectFromGUID(entry.show_ref_guid)
         if ref then
             local okR, rPos = pcall(function() return ref.getPosition() end)
             if okR and rPos then showY = rPos.y end
         end
     end
+    local savedRot = nil
+    pcall(function() savedRot = obj.getRotation() end)
     pcall(function()
         obj.setLock(false)
         obj.setPosition({x = sp.x, y = showY, z = sp.z})
+        if savedRot then obj.setRotation(savedRot) end
     end)
     broadcastToColor("showobj: '" .. tostring(name) .. "' moved to x=" .. tostring(sp.x) .. " z=" .. tostring(sp.z) .. " y=" .. string.format("%.2f", showY), player_color or "White")
 end
@@ -9612,9 +10152,12 @@ function handleHideObj(name, player_color)
         return
     end
     local hp = entry.hide_pos
+    local savedRot = nil
+    pcall(function() savedRot = obj.getRotation() end)
     pcall(function()
         obj.setLock(false)
         obj.setPosition({x = hp.x, y = hp.y, z = hp.z})
+        if savedRot then obj.setRotation(savedRot) end
     end)
     -- Lock after physics settles so the object stays put off-table
     Wait.frames(function()
@@ -9622,4 +10165,46 @@ function handleHideObj(name, player_color)
         if live then pcall(function() live.setLock(true) end) end
     end, 30)
     broadcastToColor("hideobj: '" .. tostring(name) .. "' stashed at x=" .. tostring(hp.x) .. " z=" .. tostring(hp.z), player_color or "White")
+end
+
+function adjustStackSnapPoints(player_color)
+    local mat = getObjectFromGUID(STACK_MAT_GUID)
+    if not mat then
+        broadcastToColor("adjuststacksnaps: stack mat not found (GUID " .. tostring(STACK_MAT_GUID) .. ")", player_color or "White")
+        return
+    end
+
+    local ok, rawSnaps = pcall(function() return mat.getSnapPoints() or {} end)
+    if not ok then
+        broadcastToColor("adjuststacksnaps: getSnapPoints failed", player_color or "White")
+        return
+    end
+
+    -- Deep-copy via JSON round-trip so setSnapPoints receives plain Lua tables,
+    -- not TTS proxy objects (which cause setSnapPoints to silently clear all snaps).
+    local snaps = JSON.decode(JSON.encode(rawSnaps))
+
+    local movedCount = 0
+    for _, snap in ipairs(snaps) do
+        local hasProjectTag = false
+        for _, tag in ipairs(snap.tags or {}) do
+            if tag == "project" then hasProjectTag = true; break end
+        end
+        if hasProjectTag then
+            local worldPos = mat.positionToWorld(snap.position)
+            if isWorldPositionInStackArea(worldPos) then
+                -- Subtract DZ_TRAY in world Z, then convert back to local so mat rotation is respected.
+                local newWorldPos = {x = worldPos.x, y = worldPos.y, z = worldPos.z - DZ_TRAY}
+                snap.position = mat.positionToLocal(newWorldPos)
+                movedCount = movedCount + 1
+            end
+        end
+    end
+
+    local setOk, setErr = pcall(function() mat.setSnapPoints(snaps) end)
+    if not setOk then
+        broadcastToColor("adjuststacksnaps: setSnapPoints failed: " .. tostring(setErr), player_color or "White")
+        return
+    end
+    broadcastToColor("adjuststacksnaps: shifted " .. tostring(movedCount) .. " of " .. tostring(#snaps) .. " snap point(s) by -" .. tostring(DZ_TRAY) .. " Z", player_color or "White")
 end
