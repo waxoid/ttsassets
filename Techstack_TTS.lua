@@ -2374,6 +2374,19 @@ function getTotalMarkersInTraysForOwner(ownerLabel)
     return total
 end
 
+function countTrayMarkersForOwner(ownerLabel)
+    local total = 0
+    for _, o in ipairs(getAllObjects()) do
+        if safeHasTag(o, STACK_TRAY_TAG) then
+            local baseGuid = getStackTrayOwnerGuid(o)
+            if baseGuid and BASE_MARKER_OWNER_BY_BASE_GUID[baseGuid] == ownerLabel then
+                total = total + countMarkersInTray(o)
+            end
+        end
+    end
+    return total
+end
+
 function removeStackCounterForBase(baseObj, removeMarkers)
     if not baseObj then return end
     if removeMarkers == nil then removeMarkers = true end
@@ -4272,10 +4285,9 @@ function setupDevCostButtonForGroup(tile, board)
     local halfDepth = math.abs(upDx) * halfX + math.abs(upDz) * halfZ
     local halfWidth = math.abs(rightDx * halfX + rightDz * halfZ)
 
-    -- Button region: top edge = STAFF_OFFSET_TOP from tile top, height = STAFF_OFFSET_TOP, width = STAFF_OFFSET_WIDTH from tile left
-    local btnCenterFromTop  = STAFF_OFFSET_TOP * (5.0/3.0)  -- midpoint of [TOP*4/3, TOP*2]: trims 1/3 off top edge
+    -- Button spans full tile depth; left strip of width STAFF_OFFSET_WIDTH
     local btnCenterFromLeft = STAFF_OFFSET_WIDTH * 0.5      -- midpoint of [0, WIDTH] = 0.85
-    local depthOffset = halfDepth - btnCenterFromTop         -- from tile center toward up (table center)
+    local depthOffset = 0                                    -- tile center: button covers full depth
     local latOffset   = btnCenterFromLeft - halfWidth        -- from tile center toward right (positive = rightward)
 
     local btnWorldX = (tilePos.x or 0) + upDx * depthOffset + rightDx * latOffset
@@ -4286,7 +4298,7 @@ function setupDevCostButtonForGroup(tile, board)
     local okL = pcall(function()
         local lc = tile.positionToLocal({x = btnWorldX, y = btnWorldY, z = btnWorldZ})
         local lr = tile.positionToLocal({x = btnWorldX + rightDx * STAFF_OFFSET_WIDTH, y = btnWorldY, z = btnWorldZ + rightDz * STAFF_OFFSET_WIDTH})
-        local lu = tile.positionToLocal({x = btnWorldX + upDx * (STAFF_OFFSET_TOP * 2.0/3.0), y = btnWorldY, z = btnWorldZ + upDz * (STAFF_OFFSET_TOP * 2.0/3.0)})
+        local lu = tile.positionToLocal({x = btnWorldX + upDx * (halfDepth * 2), y = btnWorldY, z = btnWorldZ + upDz * (halfDepth * 2)})
         localPos  = lc
         btnWidth  = math.abs((lr.x or 0) - (lc.x or 0)) + math.abs((lu.x or 0) - (lc.x or 0))
         btnHeight = math.abs((lr.z or 0) - (lc.z or 0)) + math.abs((lu.z or 0) - (lc.z or 0))
@@ -4305,7 +4317,7 @@ function setupDevCostButtonForGroup(tile, board)
         font_size       = 1,
         color           = {1, 1, 1, 0},
         font_color      = {1, 1, 1, 0},
-        tooltip         = "show developer costs"
+        tooltip         = "tally costs and income"
     })
 end
 
@@ -4326,9 +4338,14 @@ function onDevCostButtonClick(obj, player_color, alt_click)
     if not boardGuid then return end
 
     local board = getObjectFromGUID(boardGuid)
-    local total = countDevCosts(board)
+    local devCost = countDevCosts(board)
+    local stackIncome = countTrayMarkersForOwner(seatColor)
     local tint = (PLAYER_TINTS and seatColor and PLAYER_TINTS[seatColor]) or {1, 1, 1}
-    broadcastToColor("Dev cost: $" .. tostring(total), player_color, tint)
+    broadcastToColor(
+        "developer costs = $" .. tostring(devCost) .. " (add staff costs from industry cards to determine total staff costs)\n"
+        .. "stack income = $" .. tostring(stackIncome) .. " (from trays, add all card income to determine total income)",
+        player_color, tint
+    )
 end
 
 function countDevCosts(board)
