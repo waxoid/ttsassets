@@ -1832,6 +1832,26 @@ function addMarkerForClicker(player_color, ownerLabel)
     spawnDirectMarkerForOwner(ownerLabel, spawnPos, markerName, nil, "marker")
 end
 
+-- (local helper) spawns a marker for the given owner at the leftmost free snap point on cardObj
+function addMarkerOnCardForClicker(player_color, cardObj, ownerLabel)
+    local playerRef = getPlayerByColorSafe(player_color)
+    if not playerRef or not playerRef.seated then return end
+    local snapPos = getLeftmostFreeSnapWorldPosition(cardObj)
+    if not snapPos then
+        broadcastToColor("No free snap point on that card.", player_color)
+        return
+    end
+    local cardPos = safeGetPosition(cardObj)
+    local targetPos = makeVec3(
+        vecComponent(snapPos, "x") or 0,
+        (vecComponent(cardPos, "y") or 1) + 0.35,
+        vecComponent(snapPos, "z") or 0
+    )
+    local markerName = string.lower(tostring(ownerLabel)) .. " marker"
+    spawnDirectMarkerForOwner(ownerLabel, targetPos, markerName, nil, "marker")
+end
+
+
 -- (local helper) returns active started player colors in clockwise seat order
 function getActiveSeatMarkerColorsClockwise()
     local present = {}
@@ -1860,27 +1880,61 @@ function attachMarkerSpawnMenu()
     local mat = getObjectFromGUID(STACK_MAT_GUID)
     if not mat then return end
 
+    mat.addContextMenuItem("────────", function(player_color)
+        -- Divider before tally action.
+    end)
+
+    mat.addContextMenuItem("Tally costs and income", function(player_color)
+        local seatColor = normalizePlayerColorLabel(player_color)
+        if not seatColor then return end
+        local board = nil
+        for i, group in ipairs(PLAYER_POSITION_ASSET_GROUPS) do
+            if PLAYABLE_COLOR_PRIORITY[i] == seatColor then
+                board = group.guids[1] and getObjectFromGUID(group.guids[1])
+                break
+            end
+        end
+        local devCost = countDevCosts(board)
+        local stackIncome = countTrayMarkersForOwner(seatColor)
+        local tint = (PLAYER_TINTS and seatColor and PLAYER_TINTS[seatColor]) or {1, 1, 1}
+        broadcastToColor(
+            "developer costs = $" .. tostring(devCost) .. "\n"
+            .. "stack income = $" .. tostring(stackIncome),
+            player_color, tint
+        )
+    end)
+
+    MARKER_MENU_ATTACHED = true
+end
+
+-- Attaches "Add [color] marker" context menu items to a tech or industry card.
+-- Divider at bottom separates these items from any other menu items below.
+function attachMarkerMenuToCard(cardObj)
+    if not isGameStartedWithRoster() then return end
+    if not cardObj then return end
+    if safeGetType(cardObj) ~= "Card" then return end
+    if not (safeHasTag(cardObj, "tech") or safeHasTag(cardObj, "industry")) then return end
+
     local ordered = getActiveSeatMarkerColorsClockwise()
     if #ordered == 0 then return end
 
-    mat.addContextMenuItem("────────", function(player_color)
-        -- Divider before marker-add actions.
-    end)
-
+    local card = cardObj
     for _, color in ipairs(ordered) do
         local owner = color
-        mat.addContextMenuItem("Add " .. string.lower(color) .. " marker", function(player_color)
-            addMarkerForClicker(player_color, owner)
+        cardObj.addContextMenuItem("Add " .. string.lower(color) .. " marker", function(player_color)
+            addMarkerOnCardForClicker(player_color, card, owner)
         end)
     end
 
     if #ordered < 4 then
-        mat.addContextMenuItem("Add neutral marker", function(player_color)
-            addMarkerForClicker(player_color, "Neutral")
+        cardObj.addContextMenuItem("Add neutral marker", function(player_color)
+            addMarkerOnCardForClicker(player_color, card, "Neutral")
         end)
     end
 
-    MARKER_MENU_ATTACHED = true
+    cardObj.addContextMenuItem("────────", function(player_color)
+        -- Divider after marker-add items.
+    end)
 end
 
 function setupMarkerMarbleButtons(removeUnusedNeutralMarble)
@@ -2032,6 +2086,28 @@ function getSecondLeftmostSnapWorldPosition(cardObj)
     
     table.sort(sortedSnaps, function(a, b) return a.x < b.x end)
     return sortedSnaps[2].pos
+end
+
+-- (local helper) returns the world position of the leftmost snap point on a card with no marker near it
+function getLeftmostFreeSnapWorldPosition(cardObj)
+    if not cardObj or not cardObj.getSnapPoints then return nil end
+    local okPoints, points = pcall(function() return cardObj.getSnapPoints() or {} end)
+    if not okPoints or type(points) ~= "table" then return nil end
+    local sorted = {}
+    for _, p in ipairs(points) do
+        if p and p.position then
+            local wp = cardObj.positionToWorld and cardObj.positionToWorld(p.position) or p.position
+            if wp then table.insert(sorted, {pos = wp, x = vecComponent(wp, "x") or 0}) end
+        end
+    end
+    if #sorted == 0 then return nil end
+    table.sort(sorted, function(a, b) return a.x < b.x end)
+    for _, s in ipairs(sorted) do
+        if not isMarkerNearPosition(s.pos) then
+            return s.pos
+        end
+    end
+    return nil
 end
 
 -- Returns the world position of the Nth snap point (1-based, sorted by world X left-to-right).
@@ -4342,8 +4418,8 @@ function onDevCostButtonClick(obj, player_color, alt_click)
     local stackIncome = countTrayMarkersForOwner(seatColor)
     local tint = (PLAYER_TINTS and seatColor and PLAYER_TINTS[seatColor]) or {1, 1, 1}
     broadcastToColor(
-        "developer costs = $" .. tostring(devCost) .. " (add staff costs from industry cards to determine total staff costs)\n"
-        .. "stack income = $" .. tostring(stackIncome) .. " (from trays, add all card income to determine total income)",
+        "developer costs = $" .. tostring(devCost) .. "\n"
+        .. "stack income = $" .. tostring(stackIncome),
         player_color, tint
     )
 end
@@ -6727,9 +6803,15 @@ function onLoad(saved_state)
         refreshPassHudSafe("onLoad-post-xml3")
     end, 320)
 
-    -- Attach fix-improvement menus to all base cards and eligible decks already on the table.
+    -- Attach marker and fix-improvement menus to cards already on the table.
     Wait.frames(function()
         for _, obj in ipairs(getAllObjects()) do
+            local okMarker, markerErr = pcall(function()
+                attachMarkerMenuToCard(obj)
+            end)
+            if not okMarker then
+                stackLog("onLoad attachMarkerMenuToCard failed guid=" .. tostring(safeGetGuid(obj)) .. " err=" .. tostring(markerErr))
+            end
             local okAttach, attachErr = pcall(function()
                 attachFixImprovementsMenus(obj)
             end)
@@ -7946,6 +8028,11 @@ function doStartGame(player_color, isBasicMode)
     runStartStep("setup talent placeholders", function() setupTalentRowPlaceholders() end)
     runStartStep("setup marker marbles", function() setupMarkerMarbleButtons(true) end)
     runStartStep("setup marker menu", function() attachMarkerSpawnMenu() end)
+    runStartStep("attach card marker menus", function()
+        for _, obj in ipairs(getAllObjects()) do
+            pcall(function() attachMarkerMenuToCard(obj) end)
+        end
+    end)
     runStartStep("setup dev cost buttons", function() setupDevCostButtons() end)
 
     -- Tech cards: 8 total. Basic mode gives 1 from starter project deck first.
@@ -8493,6 +8580,7 @@ function onObjectSpawn(obj)
             if isSnapPatternEligible(liveObj) then
                 attachSnapPatternMenus(liveObj)
             end
+            attachMarkerMenuToCard(liveObj)
             attachFixImprovementsMenus(liveObj)
             if safeHasTag(liveObj, "cash") then
                 ensureCashContextMenu(liveObj)
