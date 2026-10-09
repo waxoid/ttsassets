@@ -2241,6 +2241,106 @@ function isCardSnappedForAutoMarker(cardObj)
     return delta <= STACK_AUTOMARKER_SNAP_ROT_Y_TOLERANCE
 end
 
+function snapProjectCardExact(cardObj)
+    if not cardObj then return end
+    if not isCardSnappedForAutoMarker(cardObj) then return end
+
+    local okPos, cardPos = pcall(function() return cardObj.getPosition() end)
+    if not okPos or not cardPos then return end
+    if (cardPos.z or 0) >= AUTOMARKER_BOUNDARY_Z then return end
+    if objectIsCurrentlyInAnyHandZone(cardObj) then return end
+
+    -- Find nearest player board
+    local bestBoard = nil
+    local bestBoardD2 = nil
+    for _, group in ipairs(PLAYER_POSITION_ASSET_GROUPS) do
+        local boardGuid = group.guids and group.guids[1] or nil
+        local boardObj = boardGuid and getObjectFromGUID(boardGuid) or nil
+        if boardObj then
+            local bp = safeGetPosition(boardObj)
+            if bp then
+                local dx = (bp.x or 0) - (cardPos.x or 0)
+                local dz = (bp.z or 0) - (cardPos.z or 0)
+                local d2 = dx*dx + dz*dz
+                if not bestBoardD2 or d2 < bestBoardD2 then
+                    bestBoardD2 = d2; bestBoard = boardObj
+                end
+            end
+        end
+    end
+    if not bestBoard then return end
+
+    -- Find closest snap point on that board within search radius
+    local okSnaps, snaps = pcall(function() return bestBoard.getSnapPoints() or {} end)
+    if not okSnaps or not snaps or #snaps == 0 then return end
+
+    local SNAP_R2 = 2.5 * 2.5
+    local bestWorld = nil
+    local bestSnapD2 = nil
+    for _, snap in ipairs(snaps) do
+        if snap.position then
+            local okW, sw = pcall(function() return bestBoard.positionToWorld(snap.position) end)
+            if okW and sw then
+                local dx = (sw.x or 0) - (cardPos.x or 0)
+                local dz = (sw.z or 0) - (cardPos.z or 0)
+                local d2 = dx*dx + dz*dz
+                if d2 <= SNAP_R2 and (not bestSnapD2 or d2 < bestSnapD2) then
+                    bestSnapD2 = d2; bestWorld = sw
+                end
+            end
+        end
+    end
+    if not bestWorld then return end
+
+    local corrX = (bestWorld.x or 0) - (cardPos.x or 0)
+    local corrZ = (bestWorld.z or 0) - (cardPos.z or 0)
+    if corrX*corrX + corrZ*corrZ < 0.0001 then return end  -- already exact
+
+    local targetPos = {x = bestWorld.x, y = cardPos.y, z = bestWorld.z}
+
+    -- Collect devtokens and markers riding on the card (same XZ footprint, above the card)
+    local CARD_HALF = 1.8
+    local riders = {}
+    for _, o in ipairs(getAllObjects()) do
+        if o ~= cardObj then
+            local otags = safeHasTag(o, "devtoken") or safeHasTag(o, STACK_BASE_MARKER_TAG) or safeHasTag(o, "marker")
+            if otags then
+                local op = safeGetPosition(o)
+                if op and math.abs((op.x or 0) - (cardPos.x or 0)) <= CARD_HALF
+                       and math.abs((op.z or 0) - (cardPos.z or 0)) <= CARD_HALF then
+                    table.insert(riders, {
+                        obj  = o,
+                        relX = (op.x or 0) - (cardPos.x or 0),
+                        relY = (op.y or 0) - (cardPos.y or 0),
+                        relZ = (op.z or 0) - (cardPos.z or 0),
+                    })
+                end
+            end
+        end
+    end
+
+    -- Correct card to exact snap position and canonical rotation
+    pcall(function()
+        cardObj.setPosition(targetPos)
+        cardObj.setRotation({x = 0, y = STACK_AUTOMARKER_SNAP_ROT_Y, z = 0})
+    end)
+
+    -- Move riders by same delta to maintain relative positions
+    for _, r in ipairs(riders) do
+        local g = safeGetGuid(r.obj)
+        local live = g and getObjectFromGUID(g) or nil
+        if live then
+            pcall(function()
+                live.setPosition({
+                    x = targetPos.x + r.relX,
+                    y = targetPos.y + r.relY,
+                    z = targetPos.z + r.relZ,
+                })
+            end)
+        end
+    end
+end
+
 function tryPlaceMarkerOnProjectCard(projectObj, ownerLabel, attemptsLeft)
     if not projectObj or not ownerLabel then return end
 
@@ -6022,6 +6122,12 @@ function onObjectDrop(player_color, obj)
                     end
                 end, delay)
             end
+            Wait.frames(function()
+                local liveObj = getObjectFromGUID(guid)
+                if liveObj and not objectIsCurrentlyInAnyHandZone(liveObj) then
+                    snapProjectCardExact(liveObj)
+                end
+            end, 35)
         end
     end
 
@@ -6863,7 +6969,8 @@ function onLoad(saved_state)
     setupTalentRowPlaceholders()
     if isGameStartedWithRoster() then
         setupMarkerMarbleButtons(false)
-        setupDevCostButtons()
+        -- Defer button creation so tile getBounds/positionToLocal are reliable.
+        Wait.frames(function() setupDevCostButtons() end, 30)
     end
     setupReshuffleButton()
     setupDevReshuffleButton()
@@ -10608,7 +10715,7 @@ function attachDevTokenMenus(obj)
                 promoteDevToken(obj, player_color)
             end)
         end
-        obj.addContextMenuItem("Mark for efficiency (disc)", function(player_color)
+        obj.addContextMenuItem("Mark for efficiency", function(player_color)
             toggleDevTokenEfficiency(obj)
         end)
     end)
