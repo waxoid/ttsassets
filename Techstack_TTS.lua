@@ -5953,29 +5953,32 @@ function onObjectDrop(player_color, obj)
     end
 
     if droppedGuid == ROUND_MARKER_GUID then
-        local markerPos = safeGetPosition(obj)
+        -- Capture pickupPos now; nil it immediately so a fast re-pickup gets a fresh seed.
         local pickupPos = ROUND_MARKER_PICKUP_POS
         ROUND_MARKER_PICKUP_POS = nil
-        local movedToNewPos = false
-        if markerPos and pickupPos then
+        -- Delay the position check so physics snaps the marker to its space before we measure.
+        -- Reading position at release time gives a mid-air coordinate that can be < 0.5 from
+        -- the pickup position even when the player clearly advanced to the next round space.
+        Wait.frames(function()
+            local liveRm = getObjectFromGUID(ROUND_MARKER_GUID)
+            if not liveRm then return end
+            local markerPos = safeGetPosition(liveRm)
+            if not markerPos or not pickupPos then return end
             local dx = math.abs((markerPos.x or 0) - (pickupPos.x or 0))
             local dz = math.abs((markerPos.z or 0) - (pickupPos.z or 0))
-            movedToNewPos = (dx > 0.5 or dz > 0.5)
-        end
-        if movedToNewPos then
-            PASSED_BY_COLOR = {}
-            updatePassHud()
-            returnRecruitersHome()
-            ResetActionMarkers()
-            clearDevTokenEfficiencyMarks()
-            broadcastToAll("Round advanced", {0.8, 0.95, 0.8})
-        end
-        local r3z = IS_BASIC_MODE and ROUND3_MARKER_Z_BASIC or ROUND3_MARKER_Z
-        if markerPos and math.abs((markerPos.z or 0) - r3z) <= ROUND3_MARKER_Z_TOLERANCE then
-            Wait.frames(function()
-                collectRound3StartingBasesIfEligible()
-            end, 1)
-        end
+            if dx > 0.5 or dz > 0.5 then
+                PASSED_BY_COLOR = {}
+                updatePassHud()
+                returnRecruitersHome()
+                ResetActionMarkers()
+                clearDevTokenEfficiencyMarks()
+                broadcastToAll("Round advanced", {0.8, 0.95, 0.8})
+            end
+            local r3z = IS_BASIC_MODE and ROUND3_MARKER_Z_BASIC or ROUND3_MARKER_Z
+            if math.abs((markerPos.z or 0) - r3z) <= ROUND3_MARKER_Z_TOLERANCE then
+                Wait.frames(function() collectRound3StartingBasesIfEligible() end, 1)
+            end
+        end, 10)
     end
 
     -- Suppress side effects for cards auto-moved during game start setup.
