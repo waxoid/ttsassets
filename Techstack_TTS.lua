@@ -123,8 +123,8 @@ MARKER_SPAWN_UP_REDUCTION = 0.30
 MARKER_SPAWN_DOWN_SHIFT = 0.40
 
 -- Basic/full card differences
-STARTER_PROJECT_DECK_GUID = "65dc2d"
-STARTER_DEVELOPER_DECK_GUID = "7791d4"
+STARTER_PROJECT_CARD_GUIDS = {"450341", "87bb24", "f9f64e", "67a1fc"}
+STARTER_DEVELOPER_DECK_GUID = "d27f37"
 PLAYER_UPGRADE_PAIRS = { -- first guid in each pair is the basic version of the card, second is full
     {"cf7ce4", "a76793"},
     {"cf7ce4", "a76793"},
@@ -132,10 +132,11 @@ PLAYER_UPGRADE_PAIRS = { -- first guid in each pair is the basic version of the 
     {"cf7ce4", "a76793"}
 }
 
--- Market row configurationdw
-DEVELOPER_DECK_GUID = "d891cb" -- needed for dev deck functionality, but NOTE also enables tag menu (rebuild utility)
-TECH_DECK_GUID = "2b2f8c"
-ANALYST_DECK_GUID = "5a3f82"
+-- Market row configuration
+DEVELOPER_DECK_GUID = "59b051" -- needed for dev deck functionality, but NOTE also enables tag menu (rebuild utility)
+TECH_DECK_GUID = "92dcd3"
+FULL_TECH_DECK_GUID = "1d2784"
+ANALYST_DECK_GUID = "b25c5a"
 COMMUNITYUPGRADE_DECK_GUID = "668e23"
 START_GAME_BUTTON_GUID = "7a82ee"
 START_BASIC_BUTTON_GUID = "79268f"
@@ -1422,7 +1423,30 @@ end
 -- Extracts the owning base card GUID from a usage tray's GM notes
 function getStackTrayOwnerGuid(obj)
     if not obj or not obj.getGMNotes then return nil end
-    return string.match(obj.getGMNotes() or "", "^tray_base_guid:(%w+)$")
+    return string.match(obj.getGMNotes() or "", "tray_base_guid:(%w+)")
+end
+
+-- Returns the owner label for a tray: reads "tray_owner:X" from GM notes if present,
+-- else infers from the tray's color tint (set at spawn) for legacy trays.
+function getStackTrayOwnerLabel(obj)
+    if not obj or not obj.getGMNotes then return nil end
+    local fromNotes = string.match(obj.getGMNotes() or "", "tray_owner:(%w+)")
+    if fromNotes then return fromNotes end
+    local ok, tint = pcall(function() return obj.getColorTint() end)
+    if not ok or not tint then return nil end
+    local tr = tint.r or tint[1] or 0
+    local tg = tint.g or tint[2] or 0
+    local tb = tint.b or tint[3] or 0
+    -- White-player trays use a custom tint, not PLAYER_TINTS["White"].
+    if math.abs(tr-0.733)<0.01 and math.abs(tg-0.898)<0.01 and math.abs(tb-0.910)<0.01 then
+        return "White"
+    end
+    for color, ptint in pairs(PLAYER_TINTS) do
+        if math.abs(tr-ptint[1])<0.01 and math.abs(tg-ptint[2])<0.01 and math.abs(tb-ptint[3])<0.01 then
+            return color
+        end
+    end
+    return nil
 end
 
 -- Returns the 1-based index (sorted by card-local X, ascending) of the snap point
@@ -1600,13 +1624,18 @@ function getDirectMarkerTint(ownerLabel)
 end
 
 -- (local helper) spawns a BlockSquare marker at a position for an owner
-function spawnDirectMarkerForOwner(ownerLabel, targetPos, markerName, markerNotes, extraTag)
+-- originPos: if provided, marker spawns there and flies to targetPos (smooth animation)
+function spawnDirectMarkerForOwner(ownerLabel, targetPos, markerName, markerNotes, extraTag, originPos)
     if not targetPos then return false end
 
+    local spawnAt = originPos or targetPos
+    -- When flying from a marble, spawn high above it so the marker clears marble
+    -- physics meshes before setPositionSmooth takes over.
+    local spawnYOffset = originPos and 5.0 or 0.5
     local okSpawn, spawnErr = pcall(function()
         spawnObject({
             type = "BlockSquare",
-            position = {x = targetPos.x, y = (targetPos.y or 1) + 0.2, z = targetPos.z},
+            position = {x = spawnAt.x, y = (spawnAt.y or 1) + spawnYOffset, z = spawnAt.z},
             scale = {x = 0.3, y = 0.3, z = 0.3},
             rotation = {x = 0, y = 0, z = 0},
             callback_function = function(marker)
@@ -1627,7 +1656,12 @@ function spawnDirectMarkerForOwner(ownerLabel, targetPos, markerName, markerNote
                         marker.setGMNotes(markerNotes)
                     end
                     marker.setColorTint(getDirectMarkerTint(ownerLabel))
-                    marker.setPosition(targetPos)
+                    if originPos then
+                        -- fast=true keeps the flight quick so physics has minimal window to deflect it
+                        marker.setPositionSmooth(targetPos, false, true)
+                    else
+                        marker.setPosition(targetPos)
+                    end
                 end)
             end
         })
@@ -1720,6 +1754,30 @@ MONEY_BAG_1_GUID       = "281e7a"
 MONEY_BAG_5_GUID       = "4edeac"
 MONEY_BAG_10_GUID      = "2f3adb"
 MONEY_BAG_20_GUID      = "9459d3"
+
+-- Senior dev token infinite bags, one per player color (used by Promote command)
+SENIOR_DEV_TOKEN_BAG_BY_COLOR = {
+    Blue   = "560e36",
+    Yellow = "8fc0fb",
+    Green  = "fccaa8",
+    Purple = "1e999d",
+}
+
+-- Dev token color tints: normal (game default) and highlighted (efficiency disc stand-in).
+-- Highlight state is encoded in the token's own tint so no extra state is needed.
+DEV_TOKEN_TINT_NORMAL = {
+    Blue   = {r=0.094, g=0.557, b=0.855},
+    Yellow = {r=0.922, g=0.906, b=0.047},
+    Green  = {r=0.133, g=0.710, b=0.133},
+    Purple = {r=0.627, g=0.122, b=0.941},
+}
+DEV_TOKEN_TINT_HIGHLIGHT = {
+    Blue   = {r=0.725, g=0.871, b=0.965},
+    Yellow = {r=0.988, g=0.984, b=0.843},
+    Green  = {r=0.745, g=0.973, b=0.745},
+    Purple = {r=0.902, g=0.765, b=0.992},
+}
+
 -- Unit vector away from each seat toward table center (SWNE, parallel to PLAYER_POSITION_ASSET_GROUPS)
 SEAT_ABOVE_DIR = {
     {x=0, z=1},   -- south (blue)
@@ -1736,19 +1794,19 @@ SEAT_ABOVE_DIR = {
 PLAYER_POSITION_ASSET_GROUPS = {
     {
         label = "south",
-        guids = {"cf7ce4", "a76793", "c35823", "d586bb", "0a3dec", "c8d5a3", "c22f36", "f21813", "1eaeb4", "131c5e", "89c959", "3d02e3", "455985", "0a923f", "6df032", "36e9c7", "560e36", "846b39", "3ec96a", "8d878e", "079912", "331991", "b9fc35", "02cde5", "1a73cc", "691188", "89cd13"},
+        guids = {"cf7ce4", "a76793", "79dcf5", "d586bb", "0a3dec", "8207be", "c22f36", "f21813", "3cf73a", "131c5e", "89c959", "3d02e3", "455985", "0a923f", "6df032", "36e9c7", "560e36", "846b39", "3ec96a", "8d878e", "079912", "331991", "b9fc35", "02cde5", "1a73cc", "691188", "89cd13"},
     },
     {
         label = "west",
-        guids = {"a2b1bb", "629342", "3aa517", "16568f", "14a0f8", "4c1d8f", "253c5d", "b1f846", "f24cfa", "5b5e31", "4b5411", "cf756d", "b4ad63", "80bce9", "c46283", "6ffe30", "8fc0fb", "c7ad5a", "235928", "db7513", "b66e54", "2e93fd", "c71e6d", "3ffdbf", "c9fa64", "21bca3", "1ee553"},
+        guids = {"a2b1bb", "629342", "e74eef", "d2cfc9", "6e7cac", "4c1d8f", "253c5d", "b1f846", "f24cfa", "5b5e31", "4b5411", "cf756d", "b4ad63", "80bce9", "c46283", "6ffe30", "8fc0fb", "c7ad5a", "235928", "db7513", "b66e54", "2e93fd", "c71e6d", "3ffdbf", "c9fa64", "21bca3", "1ee553"},
     },
     {
         label = "north",
-        guids = {"169a56", "bec6ed", "d5d7f4", "2432ff", "74b607", "bd7883", "0db63e", "d110b0", "b23a4f", "ad6628", "3e1b69", "6205f3", "0edcd3", "f3ca34", "6e2572", "41c1f2", "20f2bd", "fccaa8", "72a137", "1dece3", "e66086", "ff80a0", "e85556", "aa3cbd", "83bca7", "e40832", "6a996c"},
+        guids = {"169a56", "bec6ed", "d58d8a", "2432ff", "74b607", "bd7883", "0db63e", "7c3163", "21b863", "ad6628", "3e1b69", "6205f3", "0edcd3", "f3ca34", "6e2572", "41c1f2", "20f2bd", "fccaa8", "72a137", "1dece3", "e66086", "ff80a0", "e85556", "aa3cbd", "83bca7", "e40832", "6a996c"},
     },
     {
         label = "east",
-        guids = {"d132c0", "755ddf", "7eadc9", "ae5711", "139135", "c97f31", "d42c25", "334180", "bf7d66", "4ed232", "3f15d3", "ce53f7", "7eda46", "5ca65e", "c62cb5", "625438", "1e999d", "3d7c42", "bc1ae5", "e01746", "aef0d0", "593746", "99fb38", "e88a1c", "8eb32b", "138ecd", "f226cc"},
+        guids = {"d132c0", "755ddf", "a3e9d0", "b949bf", "4caa55", "c97f31", "d42c25", "334180", "bf7d66", "4ed232", "3f15d3", "ce53f7", "7eda46", "5ca65e", "c62cb5", "625438", "1e999d", "3d7c42", "bc1ae5", "e01746", "aef0d0", "593746", "99fb38", "e88a1c", "8eb32b", "138ecd", "f226cc"},
     },
 }
 
@@ -1794,6 +1852,34 @@ function getMarkerSpawnPointInStrip(ownerLabel)
     elseif label == "green" then
         qMin = ACTION_BUFFER_MIN_X + range * 0.5
         qMax = ACTION_BUFFER_MIN_X + range * 0.75
+    elseif label == "purple" then
+        qMin = ACTION_BUFFER_MIN_X + range * 0.75
+        qMax = ACTION_BUFFER_MAX_X
+    elseif label == "neutral" then
+        local playerCount = STARTED_PLAYER_COLORS and #STARTED_PLAYER_COLORS or 0
+        if playerCount >= 4 then
+            -- 4-player: share the center with blue/green
+            qMin = ACTION_BUFFER_MIN_X + range * 0.40
+            qMax = ACTION_BUFFER_MIN_X + range * 0.60
+        else
+            local seated = {}
+            for _, c in ipairs(STARTED_PLAYER_COLORS or {}) do
+                seated[string.lower(c)] = true
+            end
+            -- Prefer 3rd quadrant (green slot); fall through to any open quadrant
+            local slots = {
+                {color = "green",  f0 = 0.50, f1 = 0.75},
+                {color = "yellow", f0 = 0.00, f1 = 0.25},
+                {color = "blue",   f0 = 0.25, f1 = 0.50},
+                {color = "purple", f0 = 0.75, f1 = 1.00},
+            }
+            local chosen = slots[1]
+            for _, slot in ipairs(slots) do
+                if not seated[slot.color] then chosen = slot; break end
+            end
+            qMin = ACTION_BUFFER_MIN_X + range * chosen.f0
+            qMax = ACTION_BUFFER_MIN_X + range * chosen.f1
+        end
     else
         qMin = ACTION_BUFFER_MIN_X + range * 0.75
         qMax = ACTION_BUFFER_MAX_X
@@ -1815,9 +1901,10 @@ function onMarkerMarbleClick(obj, player_color, alt_click)
         return
     end
 
+    local marblePos = safeGetPosition(obj)
     local spawnPos = getMarkerSpawnPointInStrip(designatedOwner)
     local markerName = string.lower(tostring(designatedOwner)) .. " marker"
-    spawnDirectMarkerForOwner(designatedOwner, spawnPos, markerName, nil, "marker")
+    spawnDirectMarkerForOwner(designatedOwner, spawnPos, markerName, nil, "marker", marblePos)
 end
 
 -- (local helper) spawns a marker for the given owner near the clicking player
@@ -1837,16 +1924,21 @@ function addMarkerOnCardForClicker(player_color, cardObj, ownerLabel)
     local playerRef = getPlayerByColorSafe(player_color)
     if not playerRef or not playerRef.seated then return end
     local snapPos = getLeftmostFreeSnapWorldPosition(cardObj)
-    if not snapPos then
-        broadcastToColor("No free snap point on that card.", player_color)
-        return
-    end
     local cardPos = safeGetPosition(cardObj)
-    local targetPos = makeVec3(
-        vecComponent(snapPos, "x") or 0,
-        (vecComponent(cardPos, "y") or 1) + 0.35,
-        vecComponent(snapPos, "z") or 0
-    )
+    local targetPos
+    if snapPos then
+        targetPos = makeVec3(
+            vecComponent(snapPos, "x") or 0,
+            (vecComponent(cardPos, "y") or 1) + 0.35,
+            vecComponent(snapPos, "z") or 0
+        )
+    else
+        targetPos = makeVec3(
+            vecComponent(cardPos, "x") or 0,
+            (vecComponent(cardPos, "y") or 1) + 0.35,
+            vecComponent(cardPos, "z") or 0
+        )
+    end
     local markerName = string.lower(tostring(ownerLabel)) .. " marker"
     spawnDirectMarkerForOwner(ownerLabel, targetPos, markerName, nil, "marker")
 end
@@ -1884,7 +1976,7 @@ function attachMarkerSpawnMenu()
         -- Divider before tally action.
     end)
 
-    mat.addContextMenuItem("Tally costs and income", function(player_color)
+    mat.addContextMenuItem("Tally costs & income", function(player_color)
         local seatColor = normalizePlayerColorLabel(player_color)
         if not seatColor then return end
         local board = nil
@@ -2378,7 +2470,9 @@ function spawnUsageTrayForBase(baseGuid, targetPos, ownerLabel, callback)
             end
             obj.addTag(STACK_TRAY_TAG)
             if obj.setGMNotes then
-                obj.setGMNotes("tray_base_guid:" .. tostring(baseGuid))
+                local trayNotes = "tray_base_guid:" .. tostring(baseGuid)
+                if ownerLabel then trayNotes = trayNotes .. "|tray_owner:" .. tostring(ownerLabel) end
+                obj.setGMNotes(trayNotes)
             end
             local tint = getDirectMarkerTint(ownerLabel)
             if tint then
@@ -2438,9 +2532,8 @@ function getTotalMarkersInTraysForOwner(ownerLabel)
     local total = 0
     for _, o in ipairs(getAllObjects()) do
         if safeHasTag(o, STACK_TRAY_TAG) then
-            local trayGuid = safeGetGuid(o)
-            local baseGuid = getStackTrayOwnerGuid(o)
-            if baseGuid and BASE_MARKER_OWNER_BY_BASE_GUID[baseGuid] == ownerLabel then
+            if getStackTrayOwnerLabel(o) == ownerLabel then
+                local trayGuid = safeGetGuid(o)
                 local count = TRAY_MARKER_COUNT_BY_GUID[trayGuid]
                 if count == nil then count = countMarkersInTray(o) end
                 total = total + count
@@ -2454,8 +2547,7 @@ function countTrayMarkersForOwner(ownerLabel)
     local total = 0
     for _, o in ipairs(getAllObjects()) do
         if safeHasTag(o, STACK_TRAY_TAG) then
-            local baseGuid = getStackTrayOwnerGuid(o)
-            if baseGuid and BASE_MARKER_OWNER_BY_BASE_GUID[baseGuid] == ownerLabel then
+            if getStackTrayOwnerLabel(o) == ownerLabel then
                 total = total + countMarkersInTray(o)
             end
         end
@@ -5775,6 +5867,7 @@ function onObjectDrop(player_color, obj)
             updatePassHud()
             returnRecruitersHome()
             ResetActionMarkers()
+            clearDevTokenEfficiencyMarks()
             broadcastToAll("Round advanced", {0.8, 0.95, 0.8})
         end
         local r3z = IS_BASIC_MODE and ROUND3_MARKER_Z_BASIC or ROUND3_MARKER_Z
@@ -5919,10 +6012,8 @@ function onObjectDrop(player_color, obj)
                 Wait.frames(function()
                     local liveObj = getObjectFromGUID(guid)
                     if liveObj then
-                        -- Suppress marker placement if card was just dragged from deck or hand
                         local suppressMarker = false
-                        -- Suppress if card was just in a hand zone
-                        if HAND_REARRANGE_GUIDS[guid] or objectIsCurrentlyInAnyHandZone(liveObj) then
+                        if objectIsCurrentlyInAnyHandZone(liveObj) then
                             suppressMarker = true
                         end
                         if delay == 25 and not suppressMarker then
@@ -6818,6 +6909,7 @@ function onLoad(saved_state)
             if not okAttach then
                 stackLog("onLoad attachFixImprovementsMenus failed guid=" .. tostring(safeGetGuid(obj)) .. " err=" .. tostring(attachErr))
             end
+            pcall(function() attachDevTokenMenus(obj) end)
         end
     end, 5)
 
@@ -6835,11 +6927,12 @@ function onLoad(saved_state)
     end, 10)
 
     -- Attach cash context menus to all bills already on the table at load time.
+    -- 30 frames gives TTS time to fully settle objects before addContextMenuItem is called.
     Wait.frames(function()
         for _, obj in ipairs(getObjectsWithTag("cash")) do
             pcall(function() ensureCashContextMenu(obj) end)
         end
-    end, 5)
+    end, 30)
 
     marketLog("onLoad complete. placeholders configured=" .. tostring(#MARKET_PLACEHOLDER_GUIDS))
     Wait.frames(function()
@@ -7974,8 +8067,7 @@ function doStartGame(player_color, isBasicMode)
     -- Shuffle all involved decks before any market/hand dealing.
     runStartStep("shuffle tech", function() randomizeDeckByGuid(TECH_DECK_GUID, "main tech deck") end)
     runStartStep("shuffle developer", function() randomizeDeckByGuid(DEVELOPER_DECK_GUID, "main developer deck") end)
-    runStartStep("shuffle starter project", function() randomizeDeckByGuid(STARTER_PROJECT_DECK_GUID, "starter project deck") end)
-    runStartStep("shuffle starter developer", function() randomizeDeckByGuid(STARTER_DEVELOPER_DECK_GUID, "starter developer deck") end)
+runStartStep("shuffle starter developer", function() randomizeDeckByGuid(STARTER_DEVELOPER_DECK_GUID, "starter developer deck") end)
 
     runStartStep("refresh market", function() refreshMarket() end)
     runStartStep("refresh talent row", function() refreshTalentRow(player_color) end)
@@ -7999,6 +8091,10 @@ function doStartGame(player_color, isBasicMode)
     else
         runStartStep("remove full upgrade cards", function() setupUpgradeCardsBasic() end)
         runStartStep("delete full tiles basic",   function() deleteFullTilesBasic() end)
+        runStartStep("delete full tech deck",     function()
+            local fullTechDeck = getObjectFromGUID(FULL_TECH_DECK_GUID)
+            if fullTechDeck then pcall(function() fullTechDeck.destruct() end) end
+        end)
         -- Asset groups remove full upgrade cards for non-seated positions but not
         -- for seated positions; do a deferred pass to catch any that appear late.
         runStartStep("cleanup remaining full upgrades", function()
@@ -8053,12 +8149,6 @@ function doStartGame(player_color, isBasicMode)
                 starterTechDealtByColor[pdata.color] = 0
             end
 
-            if isBasicMode then
-                runDealSubstep("starter project deal", function()
-                    starterTechDealtByColor = dealStarterCardsPerPlayer(STARTER_PROJECT_DECK_GUID, seated, 1)
-                end)
-            end
-
             local function beginDeveloperPhase()
                 -- Developer cards: basic gives 2 from starter deck, standard gives 3 from main.
                 if isBasicMode then
@@ -8084,8 +8174,49 @@ function doStartGame(player_color, isBasicMode)
                 end)
             end
 
-            runDealSubstep("merge starter project", function()
-                mergeStarterIntoMainDeck(STARTER_PROJECT_DECK_GUID, TECH_DECK_GUID, "project", function(_mergeConfirmed)
+            local function runProjectMergeAndDeal()
+                runDealSubstep("distribute starter project cards", function()
+                    -- Shuffle the 4 individual starter project card GUIDs.
+                    local guids = {}
+                    for _, g in ipairs(STARTER_PROJECT_CARD_GUIDS) do table.insert(guids, g) end
+                    for i = #guids, 2, -1 do
+                        local j = math.random(i)
+                        guids[i], guids[j] = guids[j], guids[i]
+                    end
+
+                    -- Basic mode: deal one card directly to each seated player.
+                    local nextIdx = 1
+                    if isBasicMode then
+                        for _, pdata in ipairs(seated) do
+                            if nextIdx > #guids then break end
+                            local card = getObjectFromGUID(guids[nextIdx])
+                            if card then
+                                pcall(function() card.deal(1, pdata.color) end)
+                                starterTechDealtByColor[pdata.color] = 1
+                            end
+                            nextIdx = nextIdx + 1
+                        end
+                    end
+
+                    -- Remaining cards (all 4 in full mode; undealt ones in basic) go into tech deck.
+                    -- Unlock before putObject: in basic mode the deck is still locked from onLoad
+                    -- protection; putObject silently fails on locked containers.
+                    for i = nextIdx, #guids do
+                        local card = getObjectFromGUID(guids[i])
+                        if card then
+                            local techDeck = getObjectFromGUID(TECH_DECK_GUID)
+                            if techDeck then
+                                pcall(function()
+                                    techDeck.setLock(false)
+                                    techDeck.putObject(card)
+                                end)
+                            end
+                        end
+                    end
+
+                    -- Shuffle the tech deck to mix in any newly added cards.
+                    randomizeDeckByGuid(TECH_DECK_GUID, "tech after starter project distribution")
+
                     local techMainCounts = {}
                     for _, pdata in ipairs(seated) do
                         local starterCount = starterTechDealtByColor[pdata.color] or 0
@@ -8098,9 +8229,30 @@ function doStartGame(player_color, isBasicMode)
                         dealFromMainDeckToPlayers(TECH_DECK_GUID, seated, techMainCounts)
                     end)
 
-                    beginDeveloperPhase()
+                    -- Basic mode: all tech deals are queued synchronously above; TTS animates
+                    -- them concurrently, so later players' cards can still be in flight when dev
+                    -- deals fire. A short delay lets all tech animations complete first.
+                    if isBasicMode then
+                        Wait.frames(beginDeveloperPhase, 30)
+                    else
+                        beginDeveloperPhase()
+                    end
                 end)
-            end)
+            end
+
+            if not isBasicMode then
+                -- Merge the full-game-only tech cards into the main deck, then wait for
+                -- TTS to fully settle the combined deck before distributing starter cards.
+                runDealSubstep("merge full tech deck", function()
+                    mergeStarterIntoMainDeck(FULL_TECH_DECK_GUID, TECH_DECK_GUID, "full tech", function(_)
+                        Wait.frames(function()
+                            runProjectMergeAndDeal()
+                        end, 90)
+                    end)
+                end)
+            else
+                runProjectMergeAndDeal()
+            end
         end)
 
         if not okDeal then
@@ -8175,6 +8327,12 @@ function onObjectPickUp(player_color, obj)
         local pickupPos = safeGetPosition(obj)
         pcall(function() obj.setDescription("") end)
         Wait.frames(function() refreshCashTooltipsNear(pickupPos) end, 2)
+        -- Re-attach spend/collect menu on every pickup as a reliable recovery point.
+        -- Bills have no other script-added context menus so clearContextMenu is safe.
+        local g = safeGetGuid(obj)
+        if g then _cashMenuInitialized[g] = nil end
+        pcall(function() obj.clearContextMenu() end)
+        ensureCashContextMenu(obj)
     end
 
     local pickupType = safeGetType(obj)
@@ -8233,6 +8391,11 @@ function onObjectPickUp(player_color, obj)
                     if ok and type(v) == "number" then counterValue = v end
                 end
             end
+            local savedMarkerOwner = nil
+            if trayGuid then
+                local trayObjRef = getObjectFromGUID(trayGuid)
+                if trayObjRef then savedMarkerOwner = getStackTrayOwnerLabel(trayObjRef) end
+            end
             BASE_PICKUP_STATE_BY_GUID[pickupGuid] = {
                 pickupPos      = safeGetPosition(obj),
                 counterGuid    = counterGuid,
@@ -8240,7 +8403,7 @@ function onObjectPickUp(player_color, obj)
                 markerGuid     = markerGuid,
                 markerSnapIndex = markerSnapIndex,
                 trayGuid       = trayGuid,
-                markerOwner    = BASE_MARKER_OWNER_BY_BASE_GUID[pickupGuid],
+                markerOwner    = savedMarkerOwner,
             }
             stackLog("base pickup: recorded state guid=" .. tostring(pickupGuid)
                 .. " counterGuid=" .. tostring(counterGuid)
@@ -8248,7 +8411,7 @@ function onObjectPickUp(player_color, obj)
                 .. " markerGuid=" .. tostring(markerGuid)
                 .. " markerSnapIndex=" .. tostring(markerSnapIndex)
                 .. " trayGuid=" .. tostring(trayGuid)
-                .. " markerOwner=" .. tostring(BASE_MARKER_OWNER_BY_BASE_GUID[pickupGuid]))
+                .. " markerOwner=" .. tostring(savedMarkerOwner))
         end
     end
 
@@ -8546,6 +8709,14 @@ function onObjectDropped(colorName, obj)
     if not obj or not safeHasTag(obj, "cash") then return end
     local pos = safeGetPosition(obj)
     if not pos then return end
+    -- Bills on card market or talent-row cards face south toward the blue seat so
+    -- they read consistently regardless of who dropped them.
+    local marketRadius = (MARKET_SLOT_THRESHOLD or 0.9) + 0.5
+    if posNearAnyPlaceholder(pos, MARKET_PLACEHOLDER_GUIDS,   marketRadius)
+    or posNearAnyPlaceholder(pos, TALENT_ROW_PLACEHOLDER_GUIDS, marketRadius) then
+        pcall(function() obj.setRotation({x=0, y=180, z=0}) end)
+        return
+    end
     -- Adopt orientation of the nearest bill in stack radius so dropped bills
     -- blend with an existing stack.
     for _, other in ipairs(getObjectsWithTag("cash")) do
@@ -8585,6 +8756,7 @@ function onObjectSpawn(obj)
             if safeHasTag(liveObj, "cash") then
                 ensureCashContextMenu(liveObj)
             end
+            attachDevTokenMenus(liveObj)
         end)
         if not okSpawnMenus then
             stackLog("onObjectSpawn menu attach failed guid=" .. tostring(objGuid) .. " err=" .. tostring(spawnMenusErr))
@@ -8806,18 +8978,18 @@ end
 -- ***** for deck import – import cards, save state, check deck GUIDs, enter guids here, save & play
 --       ...then the deck will have a context menu for tagging
 -- TODO: simpler if the utility tagging menus are just always available on decks in edit mode, similar to snap-applying utilities
-PROJECT_DECK_GUID = "xxxxxx" -- only relevant for utility functions when importing a new version of the deck
-INDUSTRY_DECK_GUID = "xxxxxx" -- only relevant for utility functions when importing a new version of the deck
+PROJECT_DECK_GUID = "5fcb71" -- only relevant for utility functions when importing a new version of the deck
+INDUSTRY_DECK_GUID = "b3e7a3" -- only relevant for utility functions when importing a new version of the deck
 EXTRACT_CARD_DX = 13           -- X offset from tech deck for extracted improvement cards
 
 SNAP_PATTERN_GUIDS = {
-    industrymarker = "06acdd",
-    industryaction = "2cfd00",
+    industrymarker = "4118e2",
+    industryaction = "6d6d65",
     base = "3e4781",
-    upgradeable = "e5d0ed",
-    action = "ea5371",
-    actionhigh = "f20954",
-    newplatform = "b12320"
+    upgradeable = "09ec7b",
+    action = "0ed04b",
+    actionhigh = "bd9f7e",
+    newplatform = "a62c15"
 }
 
 SNAP_PATTERN_COMBINATIONS = {
@@ -9950,11 +10122,12 @@ end
 function ensureCashContextMenu(obj)
     local g = safeGetGuid(obj)
     if not g or _cashMenuInitialized[g] then return end
-    _cashMenuInitialized[g] = true
-    pcall(function()
+    -- Set flag only on success so a pcall failure doesn't permanently block the bill.
+    local ok = pcall(function()
         obj.addContextMenuItem("Spend cash...",   function(pc) openCashDialog(pc, obj, "spend")   end)
         obj.addContextMenuItem("Collect cash...", function(pc) openCashDialog(pc, obj, "collect") end)
     end)
+    if ok then _cashMenuInitialized[g] = true end
 end
 
 function openCashDialog(playerColor, seedObj, mode)
@@ -10312,4 +10485,132 @@ function adjustStackSnapPoints(player_color)
         return
     end
     broadcastToColor("adjuststacksnaps: shifted " .. tostring(movedCount) .. " of " .. tostring(#snaps) .. " snap point(s) by -" .. tostring(DZ_TRAY) .. " Z", player_color or "White")
+end
+
+-- ============================================================
+-- ** Dev token menus: Promote and Mark for efficiency **
+-- ============================================================
+
+_devTokenMenuInitialized = {}  -- GUID → true once context menus attached
+
+-- Returns the color key if tint matches a known highlight value, else nil.
+function devTokenHighlightKey(tint)
+    if not tint then return nil end
+    local tr = tint.r or tint[1] or 0
+    local tg = tint.g or tint[2] or 0
+    local tb = tint.b or tint[3] or 0
+    for color, ht in pairs(DEV_TOKEN_TINT_HIGHLIGHT) do
+        if math.abs(tr - ht.r) < 0.01 and math.abs(tg - ht.g) < 0.01 and math.abs(tb - ht.b) < 0.01 then
+            return color
+        end
+    end
+    return nil
+end
+
+-- Returns the color key if tint matches a known normal value, else nil.
+function devTokenNormalKey(tint)
+    if not tint then return nil end
+    local tr = tint.r or tint[1] or 0
+    local tg = tint.g or tint[2] or 0
+    local tb = tint.b or tint[3] or 0
+    for color, nt in pairs(DEV_TOKEN_TINT_NORMAL) do
+        if math.abs(tr - nt.r) < 0.01 and math.abs(tg - nt.g) < 0.01 and math.abs(tb - nt.b) < 0.01 then
+            return color
+        end
+    end
+    return nil
+end
+
+-- Toggle efficiency highlight on a dev token. State is encoded in the tint itself.
+function toggleDevTokenEfficiency(tokenObj)
+    if not tokenObj then return end
+    local ok, tint = pcall(function() return tokenObj.getColorTint() end)
+    if not ok or not tint then return end
+    local hKey = devTokenHighlightKey(tint)
+    if hKey then
+        -- Already highlighted → restore normal
+        local nt = DEV_TOKEN_TINT_NORMAL[hKey]
+        if nt then pcall(function() tokenObj.setColorTint(nt) end) end
+        return
+    end
+    local nKey = devTokenNormalKey(tint)
+    if nKey then
+        -- Normal → highlight
+        local ht = DEV_TOKEN_TINT_HIGHLIGHT[nKey]
+        if ht then pcall(function() tokenObj.setColorTint(ht) end) end
+    end
+end
+
+-- Restore all highlighted dev tokens to normal color. Called at round end.
+function clearDevTokenEfficiencyMarks()
+    for _, obj in ipairs(getAllObjects()) do
+        if safeHasTag(obj, "devtoken") then
+            local ok, tint = pcall(function() return obj.getColorTint() end)
+            if ok and tint then
+                local hKey = devTokenHighlightKey(tint)
+                if hKey then
+                    local nt = DEV_TOKEN_TINT_NORMAL[hKey]
+                    if nt then pcall(function() obj.setColorTint(nt) end) end
+                end
+            end
+        end
+    end
+end
+
+-- Swap a non-senior dev token for a senior one from the invoking player's bag.
+function promoteDevToken(tokenObj, invokerColor)
+    local oldGuid = safeGetGuid(tokenObj)
+    if not oldGuid then return end
+    local ok1, pos = pcall(function() return tokenObj.getPosition() end)
+    local ok2, rot = pcall(function() return tokenObj.getRotation() end)
+    if not ok1 or not pos or not ok2 or not rot then return end
+    local color   = normalizePlayerColorLabel(invokerColor)
+    local bagGuid = color and SENIOR_DEV_TOKEN_BAG_BY_COLOR[color]
+    if not bagGuid then
+        broadcastToColor("No senior token bag configured for " .. tostring(invokerColor) .. ".", invokerColor or "White")
+        return
+    end
+    local bag = getObjectFromGUID(bagGuid)
+    if not bag then
+        broadcastToColor("Senior dev token bag not found.", invokerColor or "White")
+        return
+    end
+    bag.takeObject({
+        position = {x = pos.x, y = pos.y + 1, z = pos.z},
+        rotation = rot,
+        smooth   = false,
+        callback_function = function(newToken)
+            if not newToken then return end
+            Wait.frames(function()
+                -- Large tokens sit ~0.07 higher than small ones on the same surface.
+                pcall(function()
+                    newToken.setPosition({x = pos.x, y = pos.y + 0.07, z = pos.z})
+                    newToken.setRotation(rot)
+                end)
+                local old = getObjectFromGUID(oldGuid)
+                if old then pcall(function() old.destruct() end) end
+            end, 2)
+        end,
+    })
+end
+
+-- Attach Promote (non-senior only) and Mark for efficiency to a dev token.
+function attachDevTokenMenus(obj)
+    if not obj then return end
+    if not safeHasTag(obj, "devtoken") then return end
+    local g = safeGetGuid(obj)
+    if not g or _devTokenMenuInitialized[g] then return end
+    local okName, name = pcall(function() return obj.getName() or "" end)
+    local isSenior = okName and name:lower():find("senior") ~= nil
+    local menuOk = pcall(function()
+        if not isSenior then
+            obj.addContextMenuItem("Promote", function(player_color)
+                promoteDevToken(obj, player_color)
+            end)
+        end
+        obj.addContextMenuItem("Mark for efficiency (disc)", function(player_color)
+            toggleDevTokenEfficiency(obj)
+        end)
+    end)
+    if menuOk then _devTokenMenuInitialized[g] = true end
 end
