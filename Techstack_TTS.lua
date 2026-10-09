@@ -5332,7 +5332,9 @@ function tuckTechCardUnderTarget(droppedCard, targetObj)
     local targetGuid = targetObj.getGUID()
     local targetPosAtDrop = safeGetPosition(targetObj)
     local TUCK_Y_OFFSET = 0.08
-    local MERGE_Y_OFFSET = 0.02
+    -- Must be strictly less than STACK_IMPROVEMENT_DY (0.02) so the merge nudge
+    -- lands above locked improvement cards and directly below the base card.
+    local MERGE_Y_OFFSET = 0.01
     local RETRY_DELAYS = {1, 3, 8, 16, 32}
     local mergeRecoveryFired = false
 
