@@ -192,6 +192,7 @@ REFERENCE_CARD_ICON_URL = "https://raw.githubusercontent.com/waxoid/ttsassets/ma
 REFERENCE_PROJECT_RELEASE_URL = "https://raw.githubusercontent.com/waxoid/ttsassets/main/projectreleasev6.png"
 REFERENCE_ROUND_PANEL_ID = "ref_panel_round_guide"
 REFERENCE_CARD_ICON_PANEL_ID = "ref_panel_card_icon"
+REFERENCE_PROJECT_RELEASE_PANEL_ID = "ref_panel_project_release"
 REFERENCE_MENU_ATTACHED = false
 CAMERA_MENU_ATTACHED = false
 MARKER_MENU_ATTACHED = false
@@ -1107,6 +1108,7 @@ function hideReferencePanelsForPlayer(player_color)
 
     removeViewerFromPanel(REFERENCE_ROUND_PANEL_ID, viewerColor)
     removeViewerFromPanel(REFERENCE_CARD_ICON_PANEL_ID, viewerColor)
+    removeViewerFromPanel(REFERENCE_PROJECT_RELEASE_PANEL_ID, viewerColor)
 end
 
 -- (local helper) hides all reference panels by clearing their visibility strings
@@ -1115,6 +1117,8 @@ function forceHideAllReferencePanels()
     UI.setAttribute(REFERENCE_ROUND_PANEL_ID, "active", "false")
     UI.setAttribute(REFERENCE_CARD_ICON_PANEL_ID, "visibility", "")
     UI.setAttribute(REFERENCE_CARD_ICON_PANEL_ID, "active", "false")
+    UI.setAttribute(REFERENCE_PROJECT_RELEASE_PANEL_ID, "visibility", "")
+    UI.setAttribute(REFERENCE_PROJECT_RELEASE_PANEL_ID, "active", "false")
 end
 
 -- (local helper) adds a player to a reference panel's visibility list and shows it
@@ -1162,8 +1166,12 @@ function showReferencePanelForPlayer(panelId, player_color)
 
     -- Images inside panels that were active=false at setXml time have no texture assigned.
     -- Explicitly re-setting the image URL after activation forces Unity to bind the texture.
-    local imgId = (panelId == REFERENCE_ROUND_PANEL_ID) and "rg_panel_img" or "ci_panel_img"
-    local imgUrl = (panelId == REFERENCE_ROUND_PANEL_ID) and REFERENCE_ROUND_GUIDE_URL or REFERENCE_CARD_ICON_URL
+    local imgId  = (panelId == REFERENCE_ROUND_PANEL_ID)        and "rg_panel_img"
+              or (panelId == REFERENCE_PROJECT_RELEASE_PANEL_ID) and "pr_panel_img"
+              or "ci_panel_img"
+    local imgUrl = (panelId == REFERENCE_ROUND_PANEL_ID)        and REFERENCE_ROUND_GUIDE_URL
+              or (panelId == REFERENCE_PROJECT_RELEASE_PANEL_ID) and REFERENCE_PROJECT_RELEASE_URL
+              or REFERENCE_CARD_ICON_URL
     Wait.frames(function()
         pcall(function() UI.setAttribute(imgId, "image", imgUrl) end)
     end, 2)
@@ -1175,6 +1183,10 @@ end
 
 function showCardIconReference(player_color)
     showReferencePanelForPlayer(REFERENCE_CARD_ICON_PANEL_ID, player_color)
+end
+
+function showProjectReleaseReference(player_color)
+    showReferencePanelForPlayer(REFERENCE_PROJECT_RELEASE_PANEL_ID, player_color)
 end
 
 function hideReferencePanel(player, value, id)
@@ -1205,11 +1217,13 @@ end
 function buildReferencePanelsXml()
     local rg = REFERENCE_ROUND_GUIDE_URL
     local ci = REFERENCE_CARD_ICON_URL
+    local pr = REFERENCE_PROJECT_RELEASE_URL
     return
         '<Panel id="ref_root" active="true" width="100%" height="100%" color="#00000000" allowDragging="false" returnToOriginalPositionWhenReleased="false">'
         .. '<Panel id="ref_preload" active="true" width="2" height="2" color="#00000000" rectAlignment="UpperLeft" offsetXY="0 0">'
         ..     '<Image image="' .. rg .. '" width="4" height="4" color="#FFFFFFFF" />'
         ..     '<Image image="' .. ci .. '" width="4" height="4" color="#FFFFFFFF" />'
+        ..     '<Image image="' .. pr .. '" width="4" height="4" color="#FFFFFFFF" />'
         .. '</Panel>'
         .. '<Panel id="ref_panel_round_guide" active="false" width="100%" height="100%" color="#000000AA" allowDragging="false" returnToOriginalPositionWhenReleased="false">'
         ..     '<Button id="ref_backdrop_round_close" text="" onClick="hideReferencePanel" width="100%" height="100%" rectAlignment="MiddleCenter" offsetXY="0 0" colors="#00000000|#00000000|#00000000|#00000000" />'
@@ -1223,6 +1237,13 @@ function buildReferencePanelsXml()
         ..     '<Panel width="1700" height="980" rectAlignment="MiddleCenter" color="#101010F0" outline="#FFFFFF33" outlineSize="2 2">'
         ..         '<Text text="Card + Icon Reference" fontSize="44" color="#F2F2F2" alignment="UpperCenter" rectAlignment="UpperCenter" offsetXY="0 -20" />'
         ..         '<Image id="ci_panel_img" image="' .. ci .. '" preserveAspect="true" width="1600" height="860" rectAlignment="MiddleCenter" offsetXY="0 -20" />'
+        ..     '</Panel>'
+        .. '</Panel>'
+        .. '<Panel id="ref_panel_project_release" active="false" width="100%" height="100%" color="#000000AA" allowDragging="false" returnToOriginalPositionWhenReleased="false">'
+        ..     '<Button id="ref_backdrop_project_release_close" text="" onClick="hideReferencePanel" width="100%" height="100%" rectAlignment="MiddleCenter" offsetXY="0 0" colors="#00000000|#00000000|#00000000|#00000000" />'
+        ..     '<Panel width="1700" height="980" rectAlignment="MiddleCenter" color="#101010F0" outline="#FFFFFF33" outlineSize="2 2">'
+        ..         '<Text text="Project Release Guide" fontSize="44" color="#F2F2F2" alignment="UpperCenter" rectAlignment="UpperCenter" offsetXY="0 -20" />'
+        ..         '<Image id="pr_panel_img" image="' .. pr .. '" preserveAspect="true" width="1600" height="860" rectAlignment="MiddleCenter" offsetXY="0 -20" />'
         ..     '</Panel>'
         .. '</Panel>'
         .. '<Panel id="pass_hud_panel" active="true" width="198" height="132" rectAlignment="LowerRight" offsetXY="-20 70" color="#00000066" outline="#FFFFFF22" outlineSize="1 1" allowDragging="false" returnToOriginalPositionWhenReleased="false">'
@@ -1273,7 +1294,7 @@ function setupReferencePanels()
 
     local function registerAssets()
         local assets = UI.getCustomAssets() or {}
-        local foundRg, foundCi = false, false
+        local foundRg, foundCi, foundPr = false, false, false
         for _, asset in ipairs(assets) do
             if asset and asset.name == "rg_img" then
                 asset.url = REFERENCE_ROUND_GUIDE_URL
@@ -1281,10 +1302,14 @@ function setupReferencePanels()
             elseif asset and asset.name == "ci_img" then
                 asset.url = REFERENCE_CARD_ICON_URL
                 foundCi = true
+            elseif asset and asset.name == "pr_img" then
+                asset.url = REFERENCE_PROJECT_RELEASE_URL
+                foundPr = true
             end
         end
         if not foundRg then table.insert(assets, {name = "rg_img", url = REFERENCE_ROUND_GUIDE_URL}) end
         if not foundCi then table.insert(assets, {name = "ci_img", url = REFERENCE_CARD_ICON_URL}) end
+        if not foundPr then table.insert(assets, {name = "pr_img", url = REFERENCE_PROJECT_RELEASE_URL}) end
         UI.setCustomAssets(assets)
     end
 
@@ -1334,6 +1359,9 @@ function attachReferenceMenu()
     end)
     mat.addContextMenuItem("Card + Icon Reference", function(player_color)
         showCardIconReference(player_color)
+    end)
+    mat.addContextMenuItem("Project Release Guide", function(player_color)
+        showProjectReleaseReference(player_color)
     end)
 
     mat.addContextMenuItem("Pass", function(player_color)
