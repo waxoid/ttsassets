@@ -2247,45 +2247,38 @@ function snapProjectCardExact(cardObj)
 
     local okPos, cardPos = pcall(function() return cardObj.getPosition() end)
     if not okPos or not cardPos then return end
-    if (cardPos.z or 0) >= AUTOMARKER_BOUNDARY_Z then return end
+    -- Skip cards that have fallen below the development stack area (no snap points there).
+    if (cardPos.z or 0) < AUTOMARKER_BOUNDARY_Z then return end
     if objectIsCurrentlyInAnyHandZone(cardObj) then return end
 
-    -- Find nearest player board
-    local bestBoard = nil
-    local bestBoardD2 = nil
+    -- Search for the nearest snap point across the stack mat AND all player boards.
+    -- Snap points may live on either object depending on game setup.
+    local snapHosts = {}
+    local stackMat = getObjectFromGUID(STACK_MAT_GUID)
+    if stackMat then table.insert(snapHosts, stackMat) end
     for _, group in ipairs(PLAYER_POSITION_ASSET_GROUPS) do
         local boardGuid = group.guids and group.guids[1] or nil
         local boardObj = boardGuid and getObjectFromGUID(boardGuid) or nil
-        if boardObj then
-            local bp = safeGetPosition(boardObj)
-            if bp then
-                local dx = (bp.x or 0) - (cardPos.x or 0)
-                local dz = (bp.z or 0) - (cardPos.z or 0)
-                local d2 = dx*dx + dz*dz
-                if not bestBoardD2 or d2 < bestBoardD2 then
-                    bestBoardD2 = d2; bestBoard = boardObj
-                end
-            end
-        end
+        if boardObj then table.insert(snapHosts, boardObj) end
     end
-    if not bestBoard then return end
-
-    -- Find closest snap point on that board within search radius
-    local okSnaps, snaps = pcall(function() return bestBoard.getSnapPoints() or {} end)
-    if not okSnaps or not snaps or #snaps == 0 then return end
 
     local SNAP_R2 = 2.5 * 2.5
     local bestWorld = nil
     local bestSnapD2 = nil
-    for _, snap in ipairs(snaps) do
-        if snap.position then
-            local okW, sw = pcall(function() return bestBoard.positionToWorld(snap.position) end)
-            if okW and sw then
-                local dx = (sw.x or 0) - (cardPos.x or 0)
-                local dz = (sw.z or 0) - (cardPos.z or 0)
-                local d2 = dx*dx + dz*dz
-                if d2 <= SNAP_R2 and (not bestSnapD2 or d2 < bestSnapD2) then
-                    bestSnapD2 = d2; bestWorld = sw
+    for _, host in ipairs(snapHosts) do
+        local okSnaps, snaps = pcall(function() return host.getSnapPoints() or {} end)
+        if okSnaps and snaps then
+            for _, snap in ipairs(snaps) do
+                if snap.position then
+                    local okW, sw = pcall(function() return host.positionToWorld(snap.position) end)
+                    if okW and sw then
+                        local dx = (sw.x or 0) - (cardPos.x or 0)
+                        local dz = (sw.z or 0) - (cardPos.z or 0)
+                        local d2 = dx*dx + dz*dz
+                        if d2 <= SNAP_R2 and (not bestSnapD2 or d2 < bestSnapD2) then
+                            bestSnapD2 = d2; bestWorld = sw
+                        end
+                    end
                 end
             end
         end
@@ -5279,6 +5272,12 @@ function findNearbyTechCardForTuck(droppedCard)
         local otherType = safeGetType(other)
         if okOtherGuid and otherGuid and otherGuid ~= droppedGuid and (otherType == "Card" or otherType == "Deck") then
             if objectIsCurrentlyInAnyHandZone(other) then
+                goto continue_tuck_scan
+            end
+            -- Locked objects can't participate in a deck merge; skip them.
+            -- This prevents targeting tech cards temporarily locked by the improvement layout.
+            local okLock, isLocked = pcall(function() return other.getLock and other.getLock() or false end)
+            if okLock and isLocked then
                 goto continue_tuck_scan
             end
             local isTechTarget = false
