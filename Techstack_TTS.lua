@@ -2272,7 +2272,6 @@ end
 
 function snapProjectCardExact(cardObj)
     if not cardObj then return end
-    if not isCardSnappedForAutoMarker(cardObj) then return end
 
     local okPos, cardPos = pcall(function() return cardObj.getPosition() end)
     if not okPos or not cardPos then return end
