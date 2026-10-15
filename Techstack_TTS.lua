@@ -124,7 +124,7 @@ MARKER_SPAWN_DOWN_SHIFT = 0.40
 
 -- Basic/full card differences
 STARTER_PROJECT_CARD_GUIDS = {"450341", "87bb24", "f9f64e", "67a1fc"}
-STARTER_DEVELOPER_DECK_GUID = "d27f37"
+STARTER_DEVELOPER_DECK_GUID = "fca7ae"
 PLAYER_UPGRADE_PAIRS = { -- first guid in each pair is the basic version of the card, second is full
     {"cf7ce4", "a76793"},
     {"cf7ce4", "a76793"},
@@ -1816,8 +1816,8 @@ function isMarkerNearPosition(targetPos, radius)
     return false
 end
 
-VC_FULL_GUIDS = {"9dd180", "cda923", "49664a", "5beced", "bb153b", "f71a3d", "5b41e2", "159425", "0b0eca", "f81aaf", "4baea7", "8e7b68"} -- SWNE ordering, in A/B/C triplets
-VC_BASIC_GUIDS = {"c0408f", "683993", "d0ed0b", "d8da03", "f9485f", "b282e8", "7695b5", "062638", "6acb1d", "363acf", "f71e29", "ab8cd8"} -- SWNE ordering, in A/B/C triplets
+VC_FULL_GUIDS = {"9dd180", "cda923", "49664a", "5beced", "bb153b", "f71a3d", "159425", "5b41e2", "0b0eca", "f81aaf", "4baea7", "8e7b68"} -- SWNE ordering, in A/B/C triplets
+VC_BASIC_GUIDS = {"c0408f", "d0ed0b", "683993", "d8da03", "f9485f", "b282e8", "7695b5", "6acb1d", "062638", "363acf", "f71e29", "ab8cd8"} -- SWNE ordering, in A/B/C triplets
 UPGRADE_FULL_GUIDS = {"f21813", "f24cfa", "74b607", "d42c25"}
 UPGRADE_BASIC_GUIDS = {"494662", "445949", "3f6b68", "bed6c5"}
 RECRUITER_GUIDS = {"0a923f", "80bce9", "f3ca34", "5ca65e"} -- standard SWNE order
@@ -7034,6 +7034,19 @@ function onLoad(saved_state)
             ROUND3_BASES_COLLECTED = decoded.round3_bases_collected == true
             PASSED_BY_COLOR = decoded.passed_by_color or {}
             IS_BASIC_MODE = decoded.is_basic_mode == true
+        end
+    end
+
+    -- After a save/load in full game mode the basic boards have been destructed and
+    -- the full boards are now the live board objects. swapPlayerBoardsFull() updated
+    -- guids[1] in-place during the original game start, but that change isn't
+    -- persisted by onSave, so restore it here for every code path that reads guids[1].
+    if not IS_BASIC_MODE and isGameStartedWithRoster() then
+        for i, group in ipairs(PLAYER_POSITION_ASSET_GROUPS) do
+            local fullGuid = PLAYER_BOARD_FULL_GUIDS and PLAYER_BOARD_FULL_GUIDS[i]
+            if fullGuid and fullGuid ~= "xxxxxx" then
+                group.guids[1] = fullGuid
+            end
         end
     end
 
