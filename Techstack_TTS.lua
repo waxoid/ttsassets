@@ -134,8 +134,8 @@ PLAYER_UPGRADE_PAIRS = { -- first guid in each pair is the basic version of the 
 
 -- Market row configuration
 DEVELOPER_DECK_GUID = "59b051" -- needed for dev deck functionality, but NOTE also enables tag menu (rebuild utility)
-TECH_DECK_GUID = "92dcd3"
-FULL_TECH_DECK_GUID = "1d2784"
+TECH_DECK_GUID = "acd0a8"
+FULL_TECH_DECK_GUID = "1cc54e"
 ANALYST_DECK_GUID = "b25c5a"
 COMMUNITYUPGRADE_DECK_GUID = "668e23"
 START_GAME_BUTTON_GUID = "7a82ee"
@@ -187,7 +187,7 @@ DEV_DECK_HOME_ROTATION = nil
 DEV_LAST_DRAG_INFO = nil  -- {guid, dropX} of most-recently dropped developer card
 DEV_RECENTLY_LEFT_HAND = {} -- [guid] = true for a short window after leaving a hand zone
 
-REFERENCE_ROUND_GUIDE_URL = "https://raw.githubusercontent.com/waxoid/ttsassets/main/roundguidev6.png"
+REFERENCE_ROUND_GUIDE_URL = "https://raw.githubusercontent.com/waxoid/ttsassets/main/roundguidev6_1.png"
 REFERENCE_CARD_ICON_URL = "https://raw.githubusercontent.com/waxoid/ttsassets/main/cardguidev6.png"
 REFERENCE_PROJECT_RELEASE_URL = "https://raw.githubusercontent.com/waxoid/ttsassets/main/projectreleasev6.png"
 REFERENCE_ROUND_PANEL_ID = "ref_panel_round_guide"
@@ -218,6 +218,7 @@ PASSED_BY_COLOR = {} -- [playerColor] = true when that player has passed for the
 HUD_PLAYER_CACHE = {}
 STARTED_PLAYER_COLORS = {}
 STARTED_PLAYER_NAME_BY_COLOR = {}
+PRE_JOIN_NAMES_BY_COLOR = {}  -- [color] = steam_name; set before game start by "join" command for async play
 RESERVED_PLAYER_COLORS = {
     Black = true,
 }
@@ -229,6 +230,8 @@ HOTSEAT_ORIGINAL_COLOR_BY_NAME = {} -- [normalizedSteamName] = originalColor; cl
 FREE_JOINS = false
 ROUND_MARKER_GUID = "b5def1"
 ROUND_MARKER_PICKUP_POS = nil
+ROUND2_MARKER_Z = 23.49
+ROUND2_MARKER_Z_BASIC = 22.95
 ROUND3_MARKER_Z = 22.94
 ROUND3_MARKER_Z_BASIC = 22.38
 ROUND3_MARKER_Z_TOLERANCE = 0.20
@@ -244,11 +247,11 @@ ROUND3_BASES_COLLECT_DEST = {x = -39.40, y = 1.17, z = 39.69}
 ROUND3_BASE_ROW_1_GUIDS = {"b48520", "ffdae0", "501719", "1a7142", "eb9710"} -- must be OS, DB, WS, DM, ML order see addStartingStackBasesForLowPlayerCount
 ROUND3_BASE_ROW_2_GUIDS = {"0ff8ba", "038af0", "2f73fa", "b7af2d", "765567"} -- strictly for round3 move
 ROUND3_BASE_ROW_1_POSITIONS = {
-    {x = -12.87, y = 1.15, z = 8.91},
-    {x = -7.67,  y = 1.15, z = 8.91},
-    {x = -2.47,  y = 1.15, z = 8.91},
-    {x = 2.73,   y = 1.15, z = 8.91},
-    {x = 7.93,   y = 1.15, z = 8.91},
+    {x = -12.87, y = 1.15, z = 7.11},
+    {x = -7.67,  y = 1.15, z = 7.11},
+    {x = -2.47,  y = 1.15, z = 7.11},
+    {x = 2.73,   y = 1.15, z = 7.11},
+    {x = 7.93,   y = 1.15, z = 7.11},
 }
 
 -- recruiter pawns blue/yellow/green/purple (normal SWNE clockwise)
@@ -362,11 +365,13 @@ MARKET_PLACEHOLDER_GUIDS = {
     "ac51d9",
 }
 
+-- boardIndex references PLAYER_POSITION_ASSET_GROUPS[i].guids[1], which swapPlayerBoardsFull
+-- updates in-place when the full board replaces the basic board.
 BOARD_CAMERA_BY_PRESET = {
-    ["1"] = {guid = "cf7ce4", yaw = 0},
-    ["2"] = {guid = "a2b1bb", yaw = 90},
-    ["3"] = {guid = "169a56", yaw = 180},
-    ["4"] = {guid = "d132c0", yaw = 270},
+    ["1"] = {boardIndex = 1, yaw = 0},
+    ["2"] = {boardIndex = 2, yaw = 90},
+    ["3"] = {boardIndex = 3, yaw = 180},
+    ["4"] = {boardIndex = 4, yaw = 270},
 }
 
 -- (local helper) returns lookAt params for a named camera preset
@@ -376,7 +381,9 @@ function getCameraPresetLookAt(player_color, presetName)
 
     local boardSpec = BOARD_CAMERA_BY_PRESET[preset]
     if boardSpec then
-        local boardObj = getObjectFromGUID(boardSpec.guid)
+        local group = boardSpec.boardIndex and PLAYER_POSITION_ASSET_GROUPS and PLAYER_POSITION_ASSET_GROUPS[boardSpec.boardIndex] or nil
+        local boardGuid = group and group.guids and group.guids[1] or nil
+        local boardObj = boardGuid and getObjectFromGUID(boardGuid) or nil
         if not boardObj then
             return nil
         end
@@ -503,6 +510,20 @@ function rebuildHudPlayerCache()
                 local pos = getPrimaryHandPositionForPlayer(p)
                 local name = tostring((p.steam_name and p.steam_name ~= "") and p.steam_name or color)
                 table.insert(entries, {color = color, name = name, pos = pos})
+            end
+        end
+    end
+
+    -- Add pre-join registrations for players not currently seated
+    if PRE_JOIN_NAMES_BY_COLOR and next(PRE_JOIN_NAMES_BY_COLOR) ~= nil then
+        local liveEntryColors = {}
+        for _, e in ipairs(entries) do
+            liveEntryColors[e.color] = true
+        end
+        for rawColor, preJoinName in pairs(PRE_JOIN_NAMES_BY_COLOR) do
+            local c = normalizePlayerColorLabel(rawColor)
+            if c and not liveEntryColors[c] then
+                table.insert(entries, {color = c, name = tostring(preJoinName or c) .. " (joined)", pos = nil})
             end
         end
     end
@@ -653,11 +674,42 @@ function onChat(message, player)
     local msg = string.lower((message or ""):gsub("^%s+", ""):gsub("%s+$", ""))
 
     if msg == "help" then
-        local helpMessage = "Available chat commands:\n'cam <1-4>/market/stack' for camera presets\n'pass' to show as passed in HUD\n'unpass' to show as active in HUD\n'pass reset' to reset all players to active in HUD\n'hotseat <color>' to temporarily switch active player color\n'hotseat off' to restore original player color\n'random <number>' output a random number in given range"
+        local joinLine = (not isGameStartedWithRoster()) and "'join' to register as a player in this game with your current color\n" or ""
+        local helpMessage = "Available chat commands:\n" .. joinLine .. "'cam <1-4>/market/stack' for camera presets\n'pass' to show as passed in HUD\n'unpass' to show as active in HUD\n'pass reset' to reset all players to active in HUD\n'hotseat <color>' to temporarily switch active player color\n'hotseat off' to restore original player color\n'random <number>' output a random number in given range"
         if EDIT_MODE then
             helpMessage = helpMessage .. "\n*** edit mode-specific commands ***\n'createstack' to regenerate stack grid snap points on the stack mat\n'printguids' to print GUIDs of selected (and nearby locked) objects\n'freejoins' to allow players to change colors freely\n'unfreejoins' to re-enable player<->color enforcement\n'extracttemplates' to extract snap template cards from tech deck\n'extractimprovements' to extract tech improvement cards\n'printrect <guid>' to print world-axis bounding rect of an object\n'showobj/hideobj <name>' surface or stash a reserve object\n'copysnaps <guid1>,<guid2>' copy snap zones from guid1 to guid2\n'adjuststacksnaps' shift snap points in stack area by DZ_TRAY"
         end
         broadcastToColor(helpMessage, (player and player.color) or "White")
+        return false
+    end
+
+    if msg == "join" then
+        if isGameStartedWithRoster() then
+            broadcastToColor("The game has already started; 'join' is only available before the game begins.", (player and player.color) or "White")
+            return false
+        end
+        if not player or not player.seated then
+            broadcastToColor("You must be seated at a player position to use 'join'.", (player and player.color) or "White")
+            return false
+        end
+        local joinColor = normalizePlayerColorLabel(player.color)
+        local joinColorIsPlayable = false
+        for _, c in ipairs(PLAYABLE_COLOR_PRIORITY or {}) do
+            if c == joinColor then joinColorIsPlayable = true; break end
+        end
+        if not joinColor or not joinColorIsPlayable then
+            broadcastToColor("You must be seated as blue, yellow, green, or purple to use 'join'.", player.color)
+            return false
+        end
+        local joinName = player.steam_name
+        if not joinName or joinName == "" then
+            broadcastToColor("Could not read your player name; please try again.", player.color)
+            return false
+        end
+        PRE_JOIN_NAMES_BY_COLOR[joinColor] = joinName
+        broadcastToColor("Registered: you have joined as " .. string.lower(joinColor) .. ". You may leave and will be included when the game starts.", joinColor)
+        broadcastToAll(tostring(joinName) .. " has pre-joined as " .. string.lower(joinColor), {0.8, 0.95, 0.8})
+        refreshPassHudSafe("join")
         return false
     end
 
@@ -1765,7 +1817,7 @@ function isMarkerNearPosition(targetPos, radius)
 end
 
 UPGRADE_FULL_GUIDS = {"f21813", "f24cfa", "74b607", "d42c25"}
-UPGRADE_BASIC_GUIDS = {"c22f36", "b1f846", "2432ff", "c97f31"}
+UPGRADE_BASIC_GUIDS = {"494662", "445949", "3f6b68", "bed6c5"}
 RECRUITER_GUIDS = {"0a923f", "80bce9", "f3ca34", "5ca65e"} -- standard SWNE order
 MORALE_TRACKER_GUIDS = {"3ec96a", "235928", "72a137", "bc1ae5"} -- standard SWNE order
 BRAND_TRACKER_GUIDS = {"8d878e", "db7513", "1dece3", "e01746"} -- standard SWNE order
@@ -1823,19 +1875,19 @@ SEAT_ABOVE_DIR = {
 PLAYER_POSITION_ASSET_GROUPS = {
     {
         label = "south",
-        guids = {"cf7ce4", "a76793", "79dcf5", "d586bb", "0a3dec", "8207be", "c22f36", "f21813", "3cf73a", "131c5e", "89c959", "3d02e3", "455985", "0a923f", "6df032", "36e9c7", "560e36", "846b39", "3ec96a", "8d878e", "079912", "331991", "b9fc35", "02cde5", "1a73cc", "691188", "89cd13"},
+        guids = {"cf7ce4", "a76793", "79dcf5", "d586bb", "0a3dec", "8207be", "494662", "f21813", "3cf73a", "131c5e", "89c959", "3d02e3", "455985", "0a923f", "6df032", "36e9c7", "560e36", "846b39", "3ec96a", "8d878e", "079912", "331991", "b9fc35", "02cde5", "1a73cc", "691188", "89cd13"},
     },
     {
         label = "west",
-        guids = {"a2b1bb", "629342", "e74eef", "d2cfc9", "6e7cac", "4c1d8f", "253c5d", "b1f846", "f24cfa", "5b5e31", "4b5411", "cf756d", "b4ad63", "80bce9", "c46283", "6ffe30", "8fc0fb", "c7ad5a", "235928", "db7513", "b66e54", "2e93fd", "c71e6d", "3ffdbf", "c9fa64", "21bca3", "1ee553"},
+        guids = {"a2b1bb", "629342", "e74eef", "d2cfc9", "6e7cac", "4c1d8f", "253c5d", "445949", "f24cfa", "5b5e31", "4b5411", "cf756d", "b4ad63", "80bce9", "c46283", "6ffe30", "8fc0fb", "c7ad5a", "235928", "db7513", "b66e54", "2e93fd", "c71e6d", "3ffdbf", "c9fa64", "21bca3", "1ee553"},
     },
     {
         label = "north",
-        guids = {"169a56", "bec6ed", "d58d8a", "2432ff", "74b607", "bd7883", "0db63e", "7c3163", "21b863", "ad6628", "3e1b69", "6205f3", "0edcd3", "f3ca34", "6e2572", "41c1f2", "20f2bd", "fccaa8", "72a137", "1dece3", "e66086", "ff80a0", "e85556", "aa3cbd", "83bca7", "e40832", "6a996c"},
+        guids = {"169a56", "bec6ed", "d58d8a", "3f6b68", "74b607", "bd7883", "0db63e", "7c3163", "21b863", "ad6628", "3e1b69", "6205f3", "0edcd3", "f3ca34", "6e2572", "41c1f2", "20f2bd", "fccaa8", "72a137", "1dece3", "e66086", "ff80a0", "e85556", "aa3cbd", "83bca7", "e40832", "6a996c"},
     },
     {
         label = "east",
-        guids = {"d132c0", "755ddf", "a3e9d0", "b949bf", "4caa55", "c97f31", "d42c25", "334180", "bf7d66", "4ed232", "3f15d3", "ce53f7", "7eda46", "5ca65e", "c62cb5", "625438", "1e999d", "3d7c42", "bc1ae5", "e01746", "aef0d0", "593746", "99fb38", "e88a1c", "8eb32b", "138ecd", "f226cc"},
+        guids = {"d132c0", "755ddf", "a3e9d0", "b949bf", "4caa55", "bed6c5", "d42c25", "334180", "bf7d66", "4ed232", "3f15d3", "ce53f7", "7eda46", "5ca65e", "c62cb5", "625438", "1e999d", "3d7c42", "bc1ae5", "e01746", "aef0d0", "593746", "99fb38", "e88a1c", "8eb32b", "138ecd", "f226cc"},
     },
 }
 
@@ -2304,6 +2356,7 @@ function snapProjectCardExact(cardObj)
     local SNAP_R2 = 2.5 * 2.5
     local bestWorld = nil
     local bestSnapD2 = nil
+    local bestSnapRot = nil
     for _, snap in ipairs(snaps) do
         if snap.position then
             local okW, sw = pcall(function() return bestBoard.positionToWorld(snap.position) end)
@@ -2312,7 +2365,7 @@ function snapProjectCardExact(cardObj)
                 local dz = (sw.z or 0) - (cardPos.z or 0)
                 local d2 = dx*dx + dz*dz
                 if d2 <= SNAP_R2 and (not bestSnapD2 or d2 < bestSnapD2) then
-                    bestSnapD2 = d2; bestWorld = sw
+                    bestSnapD2 = d2; bestWorld = sw; bestSnapRot = snap.rotation
                 end
             end
         end
@@ -2346,10 +2399,17 @@ function snapProjectCardExact(cardObj)
         end
     end
 
-    -- Correct card to exact snap position and canonical rotation
+    -- Compute world yaw: board's world yaw + snap point's local yaw
+    local boardYaw = 0
+    local okBoardRot, boardRot = pcall(function() return bestBoard.getRotation() end)
+    if okBoardRot and boardRot then boardYaw = boardRot.y or 0 end
+    local snapLocalYaw = bestSnapRot and (bestSnapRot.y or 0) or 0
+    local worldSnapYaw = (boardYaw + snapLocalYaw) % 360
+
+    -- Correct card to exact snap position and board-relative rotation
     pcall(function()
         cardObj.setPosition(targetPos)
-        cardObj.setRotation({x = 0, y = STACK_AUTOMARKER_SNAP_ROT_Y, z = 0})
+        cardObj.setRotation({x = 0, y = worldSnapYaw, z = 0})
     end)
 
     -- Move riders by same delta to maintain relative positions
@@ -3117,7 +3177,7 @@ end
 
 STACK_MAT_GUID = "c2221a"
 STACK_COUNTER_TEMPLATE_GUIDS = {"131c5e", "cf756d", "ad6628", "ce53f7"}
-STACK_TOPLEFT_POSITION = {x = -18.07, y = 1.15, z = 8.91}
+STACK_TOPLEFT_POSITION = {x = -18.07, y = 1.15, z = 7.11}
 STACK_LAYOUT_DX = 5.2
 STACK_LAYOUT_DZ = 0.66
 STACK_DZ_MULTIPLE = 5
@@ -6007,6 +6067,12 @@ function onObjectDrop(player_color, obj)
             if math.abs((markerPos.z or 0) - r3z) <= ROUND3_MARKER_Z_TOLERANCE then
                 Wait.frames(function() collectRound3StartingBasesIfEligible() end, 1)
             end
+            local r2z = IS_BASIC_MODE and ROUND2_MARKER_Z_BASIC or ROUND2_MARKER_Z
+            local playerCount = STARTED_PLAYER_COLORS and #STARTED_PLAYER_COLORS or 0
+            if playerCount >= 1 and playerCount <= 2
+                and math.abs((markerPos.z or 0) - r2z) <= ROUND3_MARKER_Z_TOLERANCE then
+                broadcastToAll("If a new neutral stack is required by open source, right-click on a base card and select 'Add as neutral stack'", {1, 1, 0.6})
+            end
         end, 10)
     end
 
@@ -6131,7 +6197,7 @@ function onObjectDrop(player_color, obj)
             end
         end
 
-        if obj and objType == "Card" and isProject and not isImprovement and not isBase and not EDIT_MODE then
+        if obj and objType == "Card" and isProject and not isImprovement and not EDIT_MODE then
             local guid = safeGetGuid(obj)
             if not guid then return end
             local projectOwner = player_color or "Neutral"
@@ -6924,6 +6990,7 @@ function onSave()
     local state = {
         started_player_colors = STARTED_PLAYER_COLORS,
         started_player_names = STARTED_PLAYER_NAME_BY_COLOR,
+        pre_join_names_by_color = PRE_JOIN_NAMES_BY_COLOR,
         round3_bases_collected = ROUND3_BASES_COLLECTED,
         passed_by_color = PASSED_BY_COLOR,
         is_basic_mode = IS_BASIC_MODE,
@@ -6961,6 +7028,7 @@ function onLoad(saved_state)
         end)
         if okDecode and type(decoded) == "table" then
             setStartedPlayersFromState(decoded.started_player_colors, decoded.started_player_names)
+            PRE_JOIN_NAMES_BY_COLOR = (type(decoded.pre_join_names_by_color) == "table") and decoded.pre_join_names_by_color or {}
             ROUND3_BASES_COLLECTED = decoded.round3_bases_collected == true
             PASSED_BY_COLOR = decoded.passed_by_color or {}
             IS_BASIC_MODE = decoded.is_basic_mode == true
@@ -7042,6 +7110,7 @@ function onLoad(saved_state)
             if not okMarker then
                 stackLog("onLoad attachMarkerMenuToCard failed guid=" .. tostring(safeGetGuid(obj)) .. " err=" .. tostring(markerErr))
             end
+            pcall(function() attachNeutralStackMenu(obj) end)
             local okAttach, attachErr = pcall(function()
                 attachFixImprovementsMenus(obj)
             end)
@@ -7280,6 +7349,33 @@ function getActiveSeatedPlayers()
         )
     end
     return seated
+end
+
+-- Returns the list of players to use for game setup: live-seated players plus any who pre-registered
+-- with the "join" command but are currently absent.  Live players take precedence over pre-join stubs
+-- for the same color.  Stub entries have player = nil and name = the registered steam name.
+function getEffectiveStartupPlayers()
+    local liveSeatsByColor = {}
+    local liveSeated = getActiveSeatedPlayers()
+    local result = {}
+
+    for _, pdata in ipairs(liveSeated) do
+        local c = normalizePlayerColorLabel(pdata.color)
+        if c then
+            liveSeatsByColor[c] = true
+            table.insert(result, pdata)
+        end
+    end
+
+    for rawColor, preJoinName in pairs(PRE_JOIN_NAMES_BY_COLOR or {}) do
+        local c = normalizePlayerColorLabel(rawColor)
+        if c and not liveSeatsByColor[c] then
+            local safeName = tostring(preJoinName or rawColor or c)
+            table.insert(result, {color = c, player = nil, name = safeName})
+        end
+    end
+
+    return result
 end
 
 function setupAnalystCards(isBasicMode)
@@ -7541,6 +7637,7 @@ function swapPlayerBoardsFull()
                             pcall(function()
                                 live.setPosition(savedPos)
                                 live.setRotation({x = 0, y = savedRot.y, z = 0})
+                                live.setLock(true)
                             end)
                         end
                     end, 5)
@@ -7765,41 +7862,62 @@ function removeUnseatedPlayerAssets(attemptsLeft)
         return
     end
 
-    for _, group in ipairs(PLAYER_POSITION_ASSET_GROUPS) do
-        local anchorGuid = group.guids[1]
-        local anchorObj = getObjectFromGUID(anchorGuid)
-        if not anchorObj then
-            stackLog("removeUnseatedPlayerAssets: anchor not found for " .. group.label .. " (guid=" .. anchorGuid .. "), skipping group")
+    for groupIndex, group in ipairs(PLAYER_POSITION_ASSET_GROUPS) do
+        local anchorGuid = group.guids and group.guids[1] or nil
+        if not anchorGuid then
+            stackLog("removeUnseatedPlayerAssets: no anchor guid for group index=" .. tostring(groupIndex))
         else
-            local okAnchorPos, anchorPos = pcall(function()
-                return anchorObj.getPosition()
-            end)
-            if not okAnchorPos or not anchorPos then
-                stackLog("removeUnseatedPlayerAssets: anchor position unavailable for " .. group.label .. " (guid=" .. anchorGuid .. "), skipping group")
-                anchorPos = nil
-            end
-            local isOccupied = false
-            if anchorPos then
-                for _, handPos in ipairs(seatedHandPositions) do
-                    local dx = anchorPos.x - handPos.x
-                    local dz = anchorPos.z - handPos.z
-                    if math.sqrt(dx * dx + dz * dz) <= PROXIMITY_THRESHOLD then
-                        isOccupied = true
-                        break
-                    end
-                end
-            end
-
-            if anchorPos and not isOccupied then
-                stackLog("removeUnseatedPlayerAssets: removing " .. #group.guids .. " assets for empty " .. group.label .. " position")
-                for _, guid in ipairs(group.guids) do
-                    local obj = getObjectFromGUID(guid)
-                    if obj then
-                        pcall(function() obj.destruct() end)
-                    end
-                end
+            local anchorObj = getObjectFromGUID(anchorGuid)
+            if not anchorObj then
+                stackLog("removeUnseatedPlayerAssets: anchor not found for " .. tostring(group.label) .. " (guid=" .. tostring(anchorGuid) .. "), skipping group")
             else
-                stackLog("removeUnseatedPlayerAssets: " .. group.label .. " position occupied, keeping assets")
+                local okAnchorPos, anchorPos = pcall(function()
+                    return anchorObj.getPosition()
+                end)
+                if not okAnchorPos or not anchorPos then
+                    stackLog("removeUnseatedPlayerAssets: anchor position unavailable for " .. tostring(group.label) .. " (guid=" .. tostring(anchorGuid) .. "), skipping group")
+                    anchorPos = nil
+                end
+                local isOccupied = false
+                if anchorPos then
+                    for _, handPos in ipairs(seatedHandPositions) do
+                        local dx = anchorPos.x - handPos.x
+                        local dz = anchorPos.z - handPos.z
+                        if math.sqrt(dx * dx + dz * dz) <= PROXIMITY_THRESHOLD then
+                            isOccupied = true
+                            break
+                        end
+                    end
+                end
+
+                -- Also protect this position if its color appears in the started roster.
+                -- Pre-join players have no live hand zone, so the spatial check above misses
+                -- them. PRE_JOIN_NAMES_BY_COLOR is already cleared by this point; use
+                -- STARTED_PLAYER_COLORS, which includes pre-join colors, as the authority.
+                if not isOccupied then
+                    local groupColor = PLAYABLE_COLOR_PRIORITY and PLAYABLE_COLOR_PRIORITY[groupIndex] or nil
+                    if groupColor then
+                        for _, startedColor in ipairs(STARTED_PLAYER_COLORS or {}) do
+                            if startedColor == groupColor then
+                                isOccupied = true
+                                stackLog("removeUnseatedPlayerAssets: " .. tostring(group.label) .. " protected by roster for " .. tostring(groupColor))
+                                break
+                            end
+                        end
+                    end
+                end
+
+                if anchorPos and not isOccupied then
+                    stackLog("removeUnseatedPlayerAssets: removing " .. #group.guids .. " assets for empty " .. tostring(group.label) .. " position")
+                    for _, guid in ipairs(group.guids) do
+                        local obj = getObjectFromGUID(guid)
+                        if obj then
+                            pcall(function() obj.destruct() end)
+                        end
+                    end
+                else
+                    stackLog("removeUnseatedPlayerAssets: " .. tostring(group.label) .. " position occupied, keeping assets")
+                end
             end
         end
     end
@@ -8109,6 +8227,106 @@ function addStartingStackBasesForLowPlayerCount(seatedCount)
     end
 end
 
+-- Returns the preferred top-row column index (1-5) for a card by looking up its GUID
+-- in ROUND3_BASE_ROW_1_GUIDS or ROUND3_BASE_ROW_2_GUIDS. Returns nil if not found.
+function getNeutralStackPreferredCol(cardGuid)
+    if not cardGuid then return nil end
+    for i, g in ipairs(ROUND3_BASE_ROW_1_GUIDS) do
+        if g == cardGuid then return i end
+    end
+    for i, g in ipairs(ROUND3_BASE_ROW_2_GUIDS) do
+        if g == cardGuid then return i end
+    end
+    return nil
+end
+
+-- Finds the first free top-row slot. Tries startCol first, then scans right, then left.
+-- startCol defaults to 1. Returns {x,y,z} or nil.
+function findFreeTopRowSlot(excludeObj, startCol)
+    local topZ = ROUND3_BASE_ROW_1_POSITIONS[1].z
+    local topY = ROUND3_BASE_ROW_1_POSITIONS[1].y
+    local zTol = STACK_POSITION_TOLERANCE + 1.0
+
+    local function isOccupied(colX)
+        for _, obj in ipairs(getAllObjects()) do
+            if obj ~= excludeObj and safeGetType(obj) == "Card"
+                and (safeHasTag(obj, "project") or safeHasTag(obj, "base")) then
+                local pos = safeGetPosition(obj)
+                if pos and math.abs(pos.x - colX) <= STACK_POSITION_TOLERANCE
+                    and math.abs(pos.z - topZ) <= zTol then
+                    return true
+                end
+            end
+        end
+        return false
+    end
+
+    local sc = startCol or 1
+    local colsToTry = {sc}
+    for col = sc + 1, STACK_COLUMNS - 1 do table.insert(colsToTry, col) end
+    for col = sc - 1, 0, -1 do table.insert(colsToTry, col) end
+
+    for _, col in ipairs(colsToTry) do
+        local colX = STACK_TOPLEFT_POSITION.x + (col * STACK_LAYOUT_DX)
+        if not isOccupied(colX) then
+            return {x = colX, y = topY, z = topZ}
+        end
+    end
+    return nil
+end
+
+-- Places cardObj at a free top-row slot as a neutral stack, spawning the neutral marker and tray.
+-- Preferred slot is derived from the card's ordinal in ROUND3_BASE_ROW_1/2_GUIDS. Rotation preserved.
+function playCardAsNeutralStack(cardObj, player_color)
+    if not cardObj or safeGetType(cardObj) ~= "Card" then return end
+    local cardGuid = safeGetGuid(cardObj)
+    local preferredCol = getNeutralStackPreferredCol(cardGuid)
+    local slot = findFreeTopRowSlot(cardObj, preferredCol)
+    if not slot then
+        local target = tostring(player_color or "")
+        local msg = "No free slot in the top stack row for a neutral stack."
+        if target ~= "" and target ~= "Grey" then
+            broadcastToColor(msg, target)
+        else
+            broadcastToAll(msg, {1, 0.6, 0.6})
+        end
+        return
+    end
+    pcall(function()
+        cardObj.setPositionSmooth(slot, false, true)
+    end)
+    local targetPos = slot
+    Wait.frames(function()
+        local function waitForSettle(attemptsLeft)
+            local liveCard = cardGuid and getObjectFromGUID(cardGuid) or nil
+            if not liveCard then return end
+            local okPos, p = pcall(function() return liveCard.getPosition() end)
+            if not okPos or not p then
+                if attemptsLeft > 0 then Wait.frames(function() waitForSettle(attemptsLeft - 1) end, 5) end
+                return
+            end
+            local settled = math.abs((p.x or 0) - targetPos.x) <= 0.05
+                         and math.abs((p.z or 0) - targetPos.z) <= 0.05
+            if settled or attemptsLeft == 0 then
+                if not settled then
+                    stackLog("playCardAsNeutralStack settle timeout; placing counter anyway guid=" .. tostring(cardGuid))
+                end
+                Wait.frames(function()
+                    local card = cardGuid and getObjectFromGUID(cardGuid) or nil
+                    if not card then return end
+                    local ok, err = pcall(function() handleBaseCardCounter(card, "Neutral", true) end)
+                    if not ok then
+                        stackLog("playCardAsNeutralStack counter failed guid=" .. tostring(cardGuid) .. " err=" .. tostring(err))
+                    end
+                end, 15)
+            else
+                Wait.frames(function() waitForSettle(attemptsLeft - 1) end, 5)
+            end
+        end
+        waitForSettle(40)
+    end, 10)
+end
+
 function notifyStartRequiresSeated(player_color)
     local msg = "Game must be started by a seated player; use 'Change Color' on player name to select a seat position."
     local target = tostring(player_color or "")
@@ -8183,12 +8401,14 @@ function doStartGame(player_color, isBasicMode)
         return
     end
 
-    local seated = getActiveSeatedPlayers()
-    if #seated == 0 then
+    local liveSeated = getActiveSeatedPlayers()
+    if #liveSeated == 0 then
         colorChangeLog("start blocked: no active seated players")
         broadcastToAll("Game start requires at least one player to be seated at the table.", {1, 0.6, 0.6})
         return
     end
+    -- Extend with pre-join stubs so absent registered players are included in all setup steps.
+    local seated = getEffectiveStartupPlayers()
 
     IS_BASIC_MODE = isBasicMode == true
     START_GAME_BUSY = true
@@ -8252,11 +8472,19 @@ runStartStep("shuffle starter developer", function() randomizeDeckByGuid(STARTER
         local color = normalizePlayerColorLabel(pdata.color)
         if color then
             table.insert(startedColors, color)
-            local snapName = tostring((pdata.player and pdata.player.steam_name and pdata.player.steam_name ~= "") and pdata.player.steam_name or color)
+            -- Prefer live steam_name, then stub name (from pre-join), then color as last resort.
+            local liveName = pdata.player and pdata.player.steam_name
+            local preName  = pdata.name
+            local snapName = tostring(
+                (liveName and liveName ~= "" and liveName)
+                or (preName and preName ~= "" and preName)
+                or color
+            )
             startedNames[color] = snapName
         end
     end
     setStartedPlayersFromState(startedColors, startedNames)
+    PRE_JOIN_NAMES_BY_COLOR = {}
 
     -- Placeholder refresh buttons are only active after game start.
     runStartStep("setup market placeholders", function() setupMarketRowPlaceholders() end)
@@ -8891,6 +9119,7 @@ function onObjectSpawn(obj)
                 attachSnapPatternMenus(liveObj)
             end
             attachMarkerMenuToCard(liveObj)
+            attachNeutralStackMenu(liveObj)
             attachFixImprovementsMenus(liveObj)
             if safeHasTag(liveObj, "cash") then
                 ensureCashContextMenu(liveObj)
@@ -9117,17 +9346,17 @@ end
 -- ***** for deck import – import cards, save state, check deck GUIDs, enter guids here, save & play
 --       ...then the deck will have a context menu for tagging
 -- TODO: simpler if the utility tagging menus are just always available on decks in edit mode, similar to snap-applying utilities
-PROJECT_DECK_GUID = "5fcb71" -- only relevant for utility functions when importing a new version of the deck
-INDUSTRY_DECK_GUID = "b3e7a3" -- only relevant for utility functions when importing a new version of the deck
+PROJECT_DECK_GUID = "xxxxxx" -- only relevant for utility functions when importing a new version of the deck
+INDUSTRY_DECK_GUID = "xxxxxx" -- only relevant for utility functions when importing a new version of the deck
 EXTRACT_CARD_DX = 13           -- X offset from tech deck for extracted improvement cards
 
 SNAP_PATTERN_GUIDS = {
     industrymarker = "4118e2",
     industryaction = "6d6d65",
     base = "3e4781",
-    upgradeable = "09ec7b",
-    action = "0ed04b",
-    actionhigh = "bd9f7e",
+    upgradeable = "c6d9fa", -- CRM
+    action = "0e54bd", -- Data Warehouse
+    actionhigh = "92d1c5", -- Search Engine
     newplatform = "a62c15"
 }
 
@@ -9579,6 +9808,18 @@ function fixImprovementsOnDeck(deckObj)
     Wait.frames(function()
         extractPlanAt(1)
     end, 1)
+end
+
+-- Attach "Play as a neutral stack" context menu to project/base cards that are not tech.
+-- Safe to call multiple times; TTS silently ignores duplicate identical menu items.
+function attachNeutralStackMenu(obj)
+    if not obj then return end
+    if safeGetType(obj) ~= "Card" then return end
+    if not (safeHasTag(obj, "project") and safeHasTag(obj, "base")) then return end
+    if safeHasTag(obj, "tech") then return end
+    obj.addContextMenuItem("Add as neutral stack", function(player_color)
+        playCardAsNeutralStack(obj, player_color)
+    end)
 end
 
 -- Attach "Fix improvements" context menu to a base Card or to a Deck containing a base card.
