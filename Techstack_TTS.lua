@@ -1816,6 +1816,8 @@ function isMarkerNearPosition(targetPos, radius)
     return false
 end
 
+VC_FULL_GUIDS = {"9dd180", "cda923", "49664a", "5beced", "bb153b", "f71a3d", "5b41e2", "159425", "0b0eca", "f81aaf", "4baea7", "8e7b68"} -- SWNE ordering, in A/B/C triplets
+VC_BASIC_GUIDS = {"c0408f", "683993", "d0ed0b", "d8da03", "f9485f", "b282e8", "7695b5", "062638", "6acb1d", "363acf", "f71e29", "ab8cd8"} -- SWNE ordering, in A/B/C triplets
 UPGRADE_FULL_GUIDS = {"f21813", "f24cfa", "74b607", "d42c25"}
 UPGRADE_BASIC_GUIDS = {"494662", "445949", "3f6b68", "bed6c5"}
 RECRUITER_GUIDS = {"0a923f", "80bce9", "f3ca34", "5ca65e"} -- standard SWNE order
@@ -1875,19 +1877,19 @@ SEAT_ABOVE_DIR = {
 PLAYER_POSITION_ASSET_GROUPS = {
     {
         label = "south",
-        guids = {"cf7ce4", "a76793", "79dcf5", "d586bb", "0a3dec", "8207be", "494662", "f21813", "3cf73a", "131c5e", "89c959", "3d02e3", "455985", "0a923f", "6df032", "36e9c7", "560e36", "846b39", "3ec96a", "8d878e", "079912", "331991", "b9fc35", "02cde5", "1a73cc", "691188", "89cd13"},
+        guids = {"cf7ce4", "a76793", "d586bb", "0a3dec", "494662", "f21813", "131c5e", "89c959", "3d02e3", "455985", "0a923f", "6df032", "36e9c7", "560e36", "846b39", "3ec96a", "8d878e", "079912", "331991", "b9fc35", "02cde5", "1a73cc", "691188", "89cd13", "c0408f", "683993", "d0ed0b", "9dd180", "cda923", "49664a"},
     },
     {
         label = "west",
-        guids = {"a2b1bb", "629342", "e74eef", "d2cfc9", "6e7cac", "4c1d8f", "253c5d", "445949", "f24cfa", "5b5e31", "4b5411", "cf756d", "b4ad63", "80bce9", "c46283", "6ffe30", "8fc0fb", "c7ad5a", "235928", "db7513", "b66e54", "2e93fd", "c71e6d", "3ffdbf", "c9fa64", "21bca3", "1ee553"},
+        guids = {"a2b1bb", "629342", "4c1d8f", "253c5d", "445949", "f24cfa", "5b5e31", "4b5411", "cf756d", "b4ad63", "80bce9", "c46283", "6ffe30", "8fc0fb", "c7ad5a", "235928", "db7513", "b66e54", "2e93fd", "c71e6d", "3ffdbf", "c9fa64", "21bca3", "1ee553", "d8da03", "f9485f", "b282e8", "5beced", "bb153b", "f71a3d"},
     },
     {
         label = "north",
-        guids = {"169a56", "bec6ed", "d58d8a", "3f6b68", "74b607", "bd7883", "0db63e", "7c3163", "21b863", "ad6628", "3e1b69", "6205f3", "0edcd3", "f3ca34", "6e2572", "41c1f2", "20f2bd", "fccaa8", "72a137", "1dece3", "e66086", "ff80a0", "e85556", "aa3cbd", "83bca7", "e40832", "6a996c"},
+        guids = {"169a56", "bec6ed", "3f6b68", "74b607", "bd7883", "0db63e", "ad6628", "3e1b69", "6205f3", "0edcd3", "f3ca34", "6e2572", "41c1f2", "20f2bd", "fccaa8", "72a137", "1dece3", "e66086", "ff80a0", "e85556", "aa3cbd", "83bca7", "e40832", "6a996c", "7695b5", "062638", "6acb1d", "5b41e2", "159425", "0b0eca"},
     },
     {
         label = "east",
-        guids = {"d132c0", "755ddf", "a3e9d0", "b949bf", "4caa55", "bed6c5", "d42c25", "334180", "bf7d66", "4ed232", "3f15d3", "ce53f7", "7eda46", "5ca65e", "c62cb5", "625438", "1e999d", "3d7c42", "bc1ae5", "e01746", "aef0d0", "593746", "99fb38", "e88a1c", "8eb32b", "138ecd", "f226cc"},
+        guids = {"d132c0", "755ddf", "bed6c5", "d42c25", "334180", "bf7d66", "4ed232", "3f15d3", "ce53f7", "7eda46", "5ca65e", "c62cb5", "625438", "1e999d", "3d7c42", "bc1ae5", "e01746", "aef0d0", "593746", "99fb38", "e88a1c", "8eb32b", "138ecd", "f226cc", "363acf", "f71e29", "ab8cd8", "f81aaf", "4baea7", "8e7b68"},
     },
 }
 
@@ -7484,6 +7486,53 @@ function setupUpgradeCardsBasic()
     end
 end
 
+function setupVcCardsFull(seated)
+    local colorToIndex = {}
+    for i, color in ipairs(PLAYABLE_COLOR_PRIORITY) do
+        colorToIndex[color] = i
+    end
+    for _, pdata in ipairs(seated) do
+        local i = colorToIndex[pdata.color]
+        if i then
+            local base = (i - 1) * 3
+            for offset = 1, 3 do
+                local fullGuid  = VC_FULL_GUIDS  and VC_FULL_GUIDS[base + offset]
+                local basicGuid = VC_BASIC_GUIDS and VC_BASIC_GUIDS[base + offset]
+                if fullGuid and basicGuid then
+                    local basicCard = getObjectFromGUID(basicGuid)
+                    local fullCard  = getObjectFromGUID(fullGuid)
+                    if basicCard and fullCard then
+                        local pos, rot
+                        local ok = pcall(function()
+                            pos = basicCard.getPosition()
+                            rot = basicCard.getRotation()
+                        end)
+                        if ok and pos and rot then
+                            pcall(function() basicCard.destruct() end)
+                            Wait.frames(function()
+                                local live = getObjectFromGUID(fullGuid)
+                                if live then
+                                    pcall(function()
+                                        live.setPosition(pos)
+                                        live.setRotation(rot)
+                                    end)
+                                end
+                            end, 5)
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+
+function setupVcCardsBasic()
+    for _, guid in ipairs(VC_FULL_GUIDS or {}) do
+        local obj = getObjectFromGUID(guid)
+        if obj then pcall(function() obj.destruct() end) end
+    end
+end
+
 function swapMarketTileFull()
     local basicTile = getObjectFromGUID(MARKET_BOARD_GUID)
     local fullTile  = getObjectFromGUID(FULL_MARKET_TILE_GUID)
@@ -8435,6 +8484,7 @@ runStartStep("shuffle starter developer", function() randomizeDeckByGuid(STARTER
     if not isBasicMode then
         runStartStep("swap player boards full", function() swapPlayerBoardsFull() end)
         runStartStep("swap upgrade cards full",  function() setupUpgradeCardsFull(seated) end)
+        runStartStep("swap vc cards full",       function() setupVcCardsFull(seated) end)
         runStartStep("slide trackers full",      function() slideTrackersFull(#seated == 1) end)
         runStartStep("swap market tile full",    function() swapMarketTileFull() end)
         runStartStep("swap tracker tile full",   function() swapTrackerTileFull() end)
@@ -8449,6 +8499,7 @@ runStartStep("shuffle starter developer", function() randomizeDeckByGuid(STARTER
         runStartStep("delete ten coins",         function() deleteFullGameCoins() end)
     else
         runStartStep("remove full upgrade cards", function() setupUpgradeCardsBasic() end)
+        runStartStep("remove full vc cards",      function() setupVcCardsBasic() end)
         runStartStep("delete full tiles basic",   function() deleteFullTilesBasic() end)
         runStartStep("delete full tech deck",     function()
             local fullTechDeck = getObjectFromGUID(FULL_TECH_DECK_GUID)
