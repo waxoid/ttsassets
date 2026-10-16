@@ -2066,6 +2066,9 @@ function attachMarkerSpawnMenu()
         for i, group in ipairs(PLAYER_POSITION_ASSET_GROUPS) do
             if PLAYABLE_COLOR_PRIORITY[i] == seatColor then
                 board = group.guids[1] and getObjectFromGUID(group.guids[1])
+                if not board and not IS_BASIC_MODE and PLAYER_BOARD_FULL_GUIDS then
+                    board = getObjectFromGUID(PLAYER_BOARD_FULL_GUIDS[i] or "")
+                end
                 break
             end
         end
@@ -4612,7 +4615,7 @@ function setupDevCostButtons()
         if group.guids then
             local tile  = getObjectFromGUID(group.guids[2] or "")
             local board = getObjectFromGUID(group.guids[1] or "")
-            if tile and board then
+            if tile then
                 local ok, err = pcall(setupDevCostButtonForGroup, tile, board)
                 if not ok then
                     stackLog("setupDevCostButtons failed for " .. tostring(group.label) .. ": " .. tostring(err))
@@ -4685,16 +4688,21 @@ function onDevCostButtonClick(obj, player_color, alt_click)
 
     local boardGuid = nil
     local seatColor = nil
+    local seatIndex = nil
     for i, group in ipairs(PLAYER_POSITION_ASSET_GROUPS) do
         if group.guids and group.guids[2] == objGuid then
             boardGuid = group.guids[1]
             seatColor = PLAYABLE_COLOR_PRIORITY[i]
+            seatIndex = i
             break
         end
     end
     if not boardGuid then return end
 
     local board = getObjectFromGUID(boardGuid)
+    if not board and not IS_BASIC_MODE and PLAYER_BOARD_FULL_GUIDS and seatIndex then
+        board = getObjectFromGUID(PLAYER_BOARD_FULL_GUIDS[seatIndex] or "")
+    end
     local devCost = countDevCosts(board)
     local stackIncome = countTrayMarkersForOwner(seatColor)
     local tint = (PLAYER_TINTS and seatColor and PLAYER_TINTS[seatColor]) or {1, 1, 1}
