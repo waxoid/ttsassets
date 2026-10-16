@@ -1901,9 +1901,12 @@ function getSeatAssetGroupForPlayerColor(playerColor)
 
     local bestGroup = nil
     local bestD2 = nil
-    for _, group in ipairs(PLAYER_POSITION_ASSET_GROUPS or {}) do
+    for i, group in ipairs(PLAYER_POSITION_ASSET_GROUPS or {}) do
         local boardGuid = group and group.guids and group.guids[1] or nil
         local boardObj = boardGuid and getObjectFromGUID(boardGuid) or nil
+        if not boardObj and not IS_BASIC_MODE and PLAYER_BOARD_FULL_GUIDS then
+            boardObj = getObjectFromGUID(PLAYER_BOARD_FULL_GUIDS[i] or "")
+        end
         local boardPos = safeGetPosition(boardObj)
         if boardPos then
             local dx = (boardPos.x or 0) - (handPos.x or 0)
@@ -2337,9 +2340,12 @@ function snapProjectCardExact(cardObj)
     -- Find nearest player board
     local bestBoard = nil
     local bestBoardD2 = nil
-    for _, group in ipairs(PLAYER_POSITION_ASSET_GROUPS) do
+    for i, group in ipairs(PLAYER_POSITION_ASSET_GROUPS) do
         local boardGuid = group.guids and group.guids[1] or nil
         local boardObj = boardGuid and getObjectFromGUID(boardGuid) or nil
+        if not boardObj and not IS_BASIC_MODE and PLAYER_BOARD_FULL_GUIDS then
+            boardObj = getObjectFromGUID(PLAYER_BOARD_FULL_GUIDS[i] or "")
+        end
         if boardObj then
             local bp = safeGetPosition(boardObj)
             if bp then
@@ -7934,10 +7940,13 @@ function removeUnseatedPlayerAssets(attemptsLeft)
 
     for groupIndex, group in ipairs(PLAYER_POSITION_ASSET_GROUPS) do
         local anchorGuid = group.guids and group.guids[1] or nil
-        if not anchorGuid then
+        local anchorObj = anchorGuid and getObjectFromGUID(anchorGuid) or nil
+        if not anchorObj and not IS_BASIC_MODE and PLAYER_BOARD_FULL_GUIDS then
+            anchorObj = getObjectFromGUID(PLAYER_BOARD_FULL_GUIDS[groupIndex] or "")
+        end
+        if not anchorGuid and not anchorObj then
             stackLog("removeUnseatedPlayerAssets: no anchor guid for group index=" .. tostring(groupIndex))
         else
-            local anchorObj = getObjectFromGUID(anchorGuid)
             if not anchorObj then
                 stackLog("removeUnseatedPlayerAssets: anchor not found for " .. tostring(group.label) .. " (guid=" .. tostring(anchorGuid) .. "), skipping group")
             else
@@ -10479,6 +10488,9 @@ function getCashInBoardZone(boardIndex)
     local group = PLAYER_POSITION_ASSET_GROUPS[boardIndex]
     if not group then return {} end
     local boardObj = getObjectFromGUID(group.guids[1])
+    if not boardObj and not IS_BASIC_MODE and PLAYER_BOARD_FULL_GUIDS then
+        boardObj = getObjectFromGUID(PLAYER_BOARD_FULL_GUIDS[boardIndex] or "")
+    end
     if not boardObj then return {} end
     local bpos = safeGetPosition(boardObj)
     if not bpos then return {} end
@@ -10642,6 +10654,9 @@ function getBillRotationForPosition(pos)
     local bestDist  = nil
     for i, group in ipairs(PLAYER_POSITION_ASSET_GROUPS) do
         local boardObj = getObjectFromGUID(group.guids[1])
+        if not boardObj and not IS_BASIC_MODE and PLAYER_BOARD_FULL_GUIDS then
+            boardObj = getObjectFromGUID(PLAYER_BOARD_FULL_GUIDS[i] or "")
+        end
         if boardObj then
             local bpos = safeGetPosition(boardObj)
             if bpos then
