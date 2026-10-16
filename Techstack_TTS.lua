@@ -6199,7 +6199,7 @@ function onObjectDrop(player_color, obj)
             end
         end
 
-        if obj and objType == "Card" and isProject and not isImprovement and not EDIT_MODE then
+        if obj and objType == "Card" and isProject and not isBase and not isImprovement and not EDIT_MODE then
             local guid = safeGetGuid(obj)
             if not guid then return end
             local projectOwner = player_color or "Neutral"
