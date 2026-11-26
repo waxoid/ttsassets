@@ -123,8 +123,8 @@ MARKER_SPAWN_UP_REDUCTION = 0.30
 MARKER_SPAWN_DOWN_SHIFT = 0.40
 
 -- Basic/full card differences
-STARTER_PROJECT_CARD_GUIDS = {"450341", "87bb24", "f9f64e", "67a1fc"}
-STARTER_DEVELOPER_DECK_GUID = "fca7ae"
+STARTER_PROJECT_CARD_GUIDS = {"3942f1", "358564", "48557f", "9c27f7"}
+STARTER_DEVELOPER_DECK_GUID = "78d613"
 PLAYER_UPGRADE_PAIRS = { -- first guid in each pair is the basic version of the card, second is full
     {"cf7ce4", "a76793"},
     {"cf7ce4", "a76793"},
@@ -133,10 +133,12 @@ PLAYER_UPGRADE_PAIRS = { -- first guid in each pair is the basic version of the 
 }
 
 -- Market row configuration
-DEVELOPER_DECK_GUID = "59b051" -- needed for dev deck functionality, but NOTE also enables tag menu (rebuild utility)
-TECH_DECK_GUID = "acd0a8"
-FULL_TECH_DECK_GUID = "1cc54e"
+DEVELOPER_DECK_GUID = "78d613" -- needed for dev deck functionality, but NOTE also enables tag menu (rebuild utility)
+DEV_FULLONLY_GUID = "b4e6a4" -- right now a stopgap for Margaret
+TECH_DECK_GUID = "873454"
+FULL_TECH_DECK_GUID = "586e8b"
 ANALYST_DECK_GUID = "b25c5a"
+SETBACK_DECK_GUID = nil -- TODO: set when setback deck is ready
 COMMUNITYUPGRADE_DECK_GUID = "668e23"
 START_GAME_BUTTON_GUID = "7a82ee"
 START_BASIC_BUTTON_GUID = "79268f"
@@ -244,8 +246,8 @@ ROUND3_BASE_ROW_1_Z = -12.21
 ROUND3_BASE_ROW_2_Z = -15.51
 ROUND3_BASE_ROW_Z_TOLERANCE = 0.25
 ROUND3_BASES_COLLECT_DEST = {x = -39.40, y = 1.17, z = 39.69}
-ROUND3_BASE_ROW_1_GUIDS = {"b48520", "ffdae0", "501719", "1a7142", "eb9710"} -- must be OS, DB, WS, DM, ML order see addStartingStackBasesForLowPlayerCount
-ROUND3_BASE_ROW_2_GUIDS = {"0ff8ba", "038af0", "2f73fa", "b7af2d", "765567"} -- strictly for round3 move
+ROUND3_BASE_ROW_1_GUIDS = {"734860", "d93171", "f132ca", "36261a", "789b59"} -- must be OS, DB, WS, DM, ML order see addStartingStackBasesForLowPlayerCount
+ROUND3_BASE_ROW_2_GUIDS = {"3f7f21", "7cb654", "405177", "507d1a", "09f152"} -- strictly for round3 move
 ROUND3_BASE_ROW_1_POSITIONS = {
     {x = -12.87, y = 1.15, z = 7.11},
     {x = -7.67,  y = 1.15, z = 7.11},
@@ -1818,8 +1820,8 @@ end
 
 VC_FULL_GUIDS = {"9dd180", "cda923", "49664a", "5beced", "bb153b", "f71a3d", "159425", "5b41e2", "0b0eca", "f81aaf", "4baea7", "8e7b68"} -- SWNE ordering, in A/B/C triplets
 VC_BASIC_GUIDS = {"c0408f", "d0ed0b", "683993", "d8da03", "f9485f", "b282e8", "7695b5", "6acb1d", "062638", "363acf", "f71e29", "ab8cd8"} -- SWNE ordering, in A/B/C triplets
-UPGRADE_FULL_GUIDS = {"f21813", "f24cfa", "74b607", "d42c25"}
-UPGRADE_BASIC_GUIDS = {"494662", "445949", "3f6b68", "bed6c5"}
+UPGRADE_FULL_GUIDS = {"cbfb39", "c79f49", "8de40e", "903c3c"}
+UPGRADE_BASIC_GUIDS = {"103787", "a61d84", "712a79", "19d6ae"}
 RECRUITER_GUIDS = {"0a923f", "80bce9", "f3ca34", "5ca65e"} -- standard SWNE order
 MORALE_TRACKER_GUIDS = {"3ec96a", "235928", "72a137", "bc1ae5"} -- standard SWNE order
 BRAND_TRACKER_GUIDS = {"8d878e", "db7513", "1dece3", "e01746"} -- standard SWNE order
@@ -1877,19 +1879,19 @@ SEAT_ABOVE_DIR = {
 PLAYER_POSITION_ASSET_GROUPS = {
     {
         label = "south",
-        guids = {"cf7ce4", "a76793", "d586bb", "0a3dec", "494662", "f21813", "131c5e", "89c959", "3d02e3", "455985", "0a923f", "6df032", "36e9c7", "560e36", "846b39", "3ec96a", "8d878e", "079912", "331991", "b9fc35", "02cde5", "1a73cc", "691188", "89cd13", "c0408f", "683993", "d0ed0b", "9dd180", "cda923", "49664a"},
+        guids = {"cf7ce4", "a76793", "4f7207", "df162a", "103787", "cbfb39", "131c5e", "89c959", "3d02e3", "455985", "0a923f", "6df032", "36e9c7", "560e36", "846b39", "3ec96a", "8d878e", "079912", "331991", "b9fc35", "02cde5", "1a73cc", "691188", "89cd13", "c0408f", "683993", "d0ed0b", "9dd180", "cda923", "49664a"},
     },
     {
         label = "west",
-        guids = {"a2b1bb", "629342", "4c1d8f", "253c5d", "445949", "f24cfa", "5b5e31", "4b5411", "cf756d", "b4ad63", "80bce9", "c46283", "6ffe30", "8fc0fb", "c7ad5a", "235928", "db7513", "b66e54", "2e93fd", "c71e6d", "3ffdbf", "c9fa64", "21bca3", "1ee553", "d8da03", "f9485f", "b282e8", "5beced", "bb153b", "f71a3d"},
+        guids = {"a2b1bb", "629342", "9e20de", "f9c714", "a61d84", "c79f49", "5b5e31", "4b5411", "cf756d", "b4ad63", "80bce9", "c46283", "6ffe30", "8fc0fb", "c7ad5a", "235928", "db7513", "b66e54", "2e93fd", "c71e6d", "3ffdbf", "c9fa64", "21bca3", "1ee553", "d8da03", "f9485f", "b282e8", "5beced", "bb153b", "f71a3d"},
     },
     {
         label = "north",
-        guids = {"169a56", "bec6ed", "3f6b68", "74b607", "bd7883", "0db63e", "ad6628", "3e1b69", "6205f3", "0edcd3", "f3ca34", "6e2572", "41c1f2", "20f2bd", "fccaa8", "72a137", "1dece3", "e66086", "ff80a0", "e85556", "aa3cbd", "83bca7", "e40832", "6a996c", "7695b5", "062638", "6acb1d", "5b41e2", "159425", "0b0eca"},
+        guids = {"169a56", "bec6ed", "712a79", "8de40e", "4f5f51", "2598b0", "ad6628", "3e1b69", "6205f3", "0edcd3", "f3ca34", "6e2572", "41c1f2", "20f2bd", "fccaa8", "72a137", "1dece3", "e66086", "ff80a0", "e85556", "aa3cbd", "83bca7", "e40832", "6a996c", "7695b5", "062638", "6acb1d", "5b41e2", "159425", "0b0eca"},
     },
     {
         label = "east",
-        guids = {"d132c0", "755ddf", "bed6c5", "d42c25", "334180", "bf7d66", "4ed232", "3f15d3", "ce53f7", "7eda46", "5ca65e", "c62cb5", "625438", "1e999d", "3d7c42", "bc1ae5", "e01746", "aef0d0", "593746", "99fb38", "e88a1c", "8eb32b", "138ecd", "f226cc", "363acf", "f71e29", "ab8cd8", "f81aaf", "4baea7", "8e7b68"},
+        guids = {"d132c0", "755ddf", "19d6ae", "903c3c", "495422", "1a7c24", "4ed232", "3f15d3", "ce53f7", "7eda46", "5ca65e", "c62cb5", "625438", "1e999d", "3d7c42", "bc1ae5", "e01746", "aef0d0", "593746", "99fb38", "e88a1c", "8eb32b", "138ecd", "f226cc", "363acf", "f71e29", "ab8cd8", "f81aaf", "4baea7", "8e7b68"},
     },
 }
 
@@ -7133,6 +7135,7 @@ function onLoad(saved_state)
     -- Attach marker and fix-improvement menus to cards already on the table.
     Wait.frames(function()
         for _, obj in ipairs(getAllObjects()) do
+            pcall(function() attachDiscardMenuToCard(obj) end)
             local okMarker, markerErr = pcall(function()
                 attachMarkerMenuToCard(obj)
             end)
@@ -7408,62 +7411,113 @@ function getEffectiveStartupPlayers()
 end
 
 function setupAnalystCards(isBasicMode)
-    local deck = getObjectFromGUID(ANALYST_DECK_GUID)
-    if not deck then
+    local analystDeck = getObjectFromGUID(ANALYST_DECK_GUID)
+    local setbackDeck = SETBACK_DECK_GUID and getObjectFromGUID(SETBACK_DECK_GUID)
+
+    if isBasicMode then
+        if analystDeck then pcall(function() analystDeck.destruct() end) end
+        if setbackDeck then pcall(function() setbackDeck.destruct() end) end
+        return
+    end
+
+    if not analystDeck then
         debugPrint("⚠️ Analyst deck not found: " .. tostring(ANALYST_DECK_GUID))
         return
     end
 
-    if isBasicMode then
-        pcall(function() deck.destruct() end)
-        return
+    -- (local helper) shuffle deck and invoke fn(liveDeck) after settling
+    local function shuffleThenDo(deckObj, guid, fn)
+        if deckObj.type == "Deck" then
+            deckObj.randomize()
+            Wait.frames(function()
+                local live = getObjectFromGUID(guid)
+                if live then fn(live) else debugPrint("⚠️ deck gone after shuffle guid=" .. tostring(guid)) end
+            end, 10)
+        elseif deckObj.type == "Card" then
+            fn(deckObj)
+        end
     end
 
-    if deck.type == "Deck" then
-        deck.randomize()
+    -- (local helper) take cards from a deck/card into positions, calling onCard(card, pos) per placed card
+    local function takeIntoPositions(liveObj, guid, positions, onCard)
+        for _, pos in ipairs(positions) do
+            if liveObj.type == "Deck" then
+                pcall(function()
+                    liveObj.takeObject({
+                        index    = 0,
+                        position = pos,
+                        smooth   = false,
+                        callback_function = function(card)
+                            if card and onCard then onCard(card, pos) end
+                        end,
+                    })
+                end)
+            elseif liveObj.type == "Card" then
+                local card = liveObj
+                pcall(function()
+                    card.setPosition(pos)
+                    if onCard then onCard(card, pos) end
+                end)
+                break
+            end
+        end
+    end
 
+    -- (local helper) delete any remaining object at guid after a short delay
+    local function deleteRemainder(guid, delay)
         Wait.frames(function()
-            local liveDeck = getObjectFromGUID(ANALYST_DECK_GUID)
-            if not liveDeck then
-                debugPrint("⚠️ Analyst deck missing after shuffle")
-                return
-            end
+            local obj = getObjectFromGUID(guid)
+            if obj then pcall(function() obj.destruct() end) end
+        end, delay or 10)
+    end
 
-            for _, pos in ipairs(ANALYST_CARD_POSITIONS) do
-                if liveDeck.type == "Deck" then
-                    pcall(function()
-                        liveDeck.takeObject({
-                            index = 0,
-                            position = pos,
-                            smooth = false,
-                            callback_function = function(card)
-                                if card then
-                                    pcall(function() card.addTag("analyst") end)
-                                end
-                            end
-                        })
-                    end)
-                elseif liveDeck.type == "Card" then
-                    pcall(function()
-                        liveDeck.setPositionSmooth(pos, false, true)
-                        liveDeck.addTag("analyst")
-                    end)
-                    break
-                end
-            end
+    if setbackDeck then
+        -- Phase 1: place setback cards locked so the analyst cards placed on top won't merge with them.
+        shuffleThenDo(setbackDeck, SETBACK_DECK_GUID, function(sbLive)
+            local placedSetbackGuids = {}
+            takeIntoPositions(sbLive, SETBACK_DECK_GUID, ANALYST_CARD_POSITIONS, function(card, _pos)
+                pcall(function()
+                    card.setLock(true)
+                    table.insert(placedSetbackGuids, card.getGUID())
+                end)
+            end)
+            deleteRemainder(SETBACK_DECK_GUID, 10)
 
+            -- Phase 2: place analyst cards on top (Y+0.15 so they rest above the locked setback card)
             Wait.frames(function()
-                local remainder = getObjectFromGUID(ANALYST_DECK_GUID)
-                if remainder then
-                    pcall(function() remainder.destruct() end)
+                local analystLive = getObjectFromGUID(ANALYST_DECK_GUID)
+                if not analystLive then
+                    debugPrint("⚠️ Analyst deck missing before placement")
+                    return
                 end
-            end, 10)
-        end, 10)
-    elseif deck.type == "Card" then
-        deck.setPositionSmooth(ANALYST_CARD_POSITIONS[1], false, true)
-        deck.addTag("analyst")
+                shuffleThenDo(analystLive, ANALYST_DECK_GUID, function(aLive)
+                    local analystPositions = {}
+                    for _, pos in ipairs(ANALYST_CARD_POSITIONS) do
+                        table.insert(analystPositions, {x = pos.x, y = pos.y + 0.15, z = pos.z})
+                    end
+                    takeIntoPositions(aLive, ANALYST_DECK_GUID, analystPositions, function(card, _pos)
+                        pcall(function() card.addTag("analyst") end)
+                    end)
+                    deleteRemainder(ANALYST_DECK_GUID, 10)
+
+                    -- Phase 3: unlock setback cards once analyst cards have settled
+                    Wait.frames(function()
+                        for _, g in ipairs(placedSetbackGuids) do
+                            local obj = getObjectFromGUID(g)
+                            if obj then pcall(function() obj.setLock(false) end) end
+                        end
+                    end, 20)
+                end)
+            end, 5)
+        end)
     else
-        debugPrint("⚠️ Analyst deck object has unsupported type: " .. tostring(deck.type))
+        -- No setback deck: original analyst-only behavior
+        shuffleThenDo(analystDeck, ANALYST_DECK_GUID, function(liveDeck)
+            takeIntoPositions(liveDeck, ANALYST_DECK_GUID, ANALYST_CARD_POSITIONS, function(card, _pos)
+                pcall(function() card.addTag("analyst") end)
+            end)
+            deleteRemainder(ANALYST_DECK_GUID, 10)
+        end)
     end
 end
 
@@ -8598,6 +8652,24 @@ runStartStep("shuffle starter developer", function() randomizeDeckByGuid(STARTER
             end
 
             local function beginDeveloperPhase()
+                -- Full-only dev card: add to deck before the merge/shuffle for full game, delete for basic.
+                runDealSubstep("handle full-only dev card", function()
+                    local fullOnlyCard = getObjectFromGUID(DEV_FULLONLY_GUID)
+                    if fullOnlyCard then
+                        if isBasicMode then
+                            pcall(function() fullOnlyCard.destruct() end)
+                        else
+                            local devDeck = getObjectFromGUID(DEVELOPER_DECK_GUID)
+                            if devDeck then
+                                pcall(function()
+                                    devDeck.setLock(false)
+                                    devDeck.putObject(fullOnlyCard)
+                                end)
+                            end
+                        end
+                    end
+                end)
+
                 -- Developer cards: basic gives 2 from starter deck, standard gives 3 from main.
                 if isBasicMode then
                     runDealSubstep("starter developer deal", function()
@@ -9199,6 +9271,7 @@ function onObjectSpawn(obj)
             if isSnapPatternEligible(liveObj) then
                 attachSnapPatternMenus(liveObj)
             end
+            attachDiscardMenuToCard(liveObj)
             attachMarkerMenuToCard(liveObj)
             attachNeutralStackMenu(liveObj)
             attachFixImprovementsMenus(liveObj)
@@ -9211,6 +9284,21 @@ function onObjectSpawn(obj)
             stackLog("onObjectSpawn menu attach failed guid=" .. tostring(objGuid) .. " err=" .. tostring(spawnMenusErr))
         end
     end, 1)
+
+    -- Frame-30 cash retry: the frame-1 call above can poison the guard when
+    -- addContextMenuItem silently no-ops on an object still settling.  Clear
+    -- the guard and re-attach at frame 30 (same delay as onLoad) to recover.
+    -- clearContextMenu is safe because bills have no other script-added menus.
+    if objGuid then
+        Wait.frames(function()
+            local liveCash = getObjectFromGUID(objGuid)
+            if not liveCash or not safeHasTag(liveCash, "cash") then return end
+            local cashG = safeGetGuid(liveCash)
+            if cashG then _cashMenuInitialized[cashG] = nil end
+            pcall(function() liveCash.clearContextMenu() end)
+            ensureCashContextMenu(liveCash)
+        end, 30)
+    end
 
     -- Post-merge directional split: when TTS merges dev cards into a deck outside
     -- allowed zones, extract the dragged card and offset it by DEV_ANTI_MERGE_DX
@@ -9226,7 +9314,7 @@ function onObjectSpawn(obj)
         end
     end
 
-    if isDeck and DEV_LAST_DRAG_INFO then
+    if isDeck and DEV_LAST_DRAG_INFO and not EDIT_MODE then
         local deckGuid = objGuid
         local dragInfo = DEV_LAST_DRAG_INFO
         Wait.frames(function()
@@ -9432,13 +9520,13 @@ INDUSTRY_DECK_GUID = "xxxxxx" -- only relevant for utility functions when import
 EXTRACT_CARD_DX = 13           -- X offset from tech deck for extracted improvement cards
 
 SNAP_PATTERN_GUIDS = {
-    industrymarker = "4118e2",
-    industryaction = "6d6d65",
-    base = "3e4781",
-    upgradeable = "c6d9fa", -- CRM
+    industrymarker = "6ee3b3",
+    industryaction = "50c0d5",
+    base = "734860",
+    upgradeable = "e7965a", 
     action = "0e54bd", -- Data Warehouse
     actionhigh = "92d1c5", -- Search Engine
-    newplatform = "a62c15"
+    newplatform = "8ca3ef"
 }
 
 SNAP_PATTERN_COMBINATIONS = {
@@ -9988,6 +10076,7 @@ function isOwnerSnapEligibleTags(tags)
 end
 
 -- (local helper) returns true if a card's snap count qualifies it for the owner snap point
+-- snapCount of 3 = action, still requires owner (1 = industry action, 4/7 = upgradeable, 5 = base...)
 function isOwnerSnapEligibleCount(snapCount)
     return snapCount ~= 1 and snapCount ~= 2 and snapCount ~= 4 and snapCount ~= 5 and snapCount ~= 7
 end
@@ -10955,6 +11044,133 @@ function adjustStackSnapPoints(player_color)
 end
 
 -- ============================================================
+-- ** Discard context menu **
+-- ============================================================
+
+_discardMenuInitialized = {}  -- GUID → true once Discard menu attached
+
+-- Routes a single tech or developer card to its appropriate discard pile.
+function discardCardByContextMenu(cardObj)
+    if not cardObj then return end
+    if safeGetType(cardObj) ~= "Card" then return end
+    local cardGuid = safeGetGuid(cardObj)
+    if not cardGuid then return end
+
+    local isDev = safeHasTag(cardObj, "developer")
+    local isTech = safeHasTag(cardObj, "tech")
+    if not isDev and not isTech then return end
+
+    if isDev then
+        local discardPos = getDevDiscardPilePosition()
+        if not discardPos then
+            broadcastToAll("Developer discard tile not found.", "Red")
+            return
+        end
+        local discardTile = getDevDiscardTile()
+        local discardRot = nil
+        if discardTile then
+            local okRot, rot = pcall(function() return discardTile.getRotation() end)
+            if okRot then discardRot = rot end
+        end
+        local targetRot = discardRot
+            and {x = discardRot.x, y = discardRot.y, z = DEV_FACE_UP_Z}
+            or  {x = 0, y = 0, z = DEV_FACE_UP_Z}
+
+        local existingDiscard = getDevDiscardDeckObject()
+        local existingGuid = safeGetGuid(existingDiscard)
+        if existingDiscard and existingGuid ~= cardGuid then
+            pcall(function() existingDiscard.setLock(false) end)
+        end
+
+        pcall(function()
+            cardObj.setRotationSmooth(targetRot, false, true)
+            if objectIsCurrentlyInAnyHandZone(cardObj) then
+                cardObj.setPosition({x = discardPos.x, y = discardPos.y + 0.5, z = discardPos.z})
+            else
+                cardObj.setPositionSmooth({x = discardPos.x, y = discardPos.y, z = discardPos.z}, false, true)
+            end
+        end)
+
+        Wait.frames(function()
+            local liveCard = getLiveObjectByGUID(cardGuid)
+            local liveDiscard = getDevDiscardDeckObject()
+            local liveDiscardGuid = safeGetGuid(liveDiscard)
+            if liveCard and liveDiscard and liveDiscardGuid ~= cardGuid then
+                pcall(function()
+                    liveDiscard.setLock(false)
+                    liveDiscard.putObject(liveCard)
+                end)
+            end
+            Wait.frames(function()
+                updateDevDeckProtection()
+            end, 8)
+        end, 8)
+    else
+        local discardPos = getDiscardPilePosition()
+        if not discardPos then
+            broadcastToAll("Tech discard tile not found.", "Red")
+            return
+        end
+
+        local existingDiscard = nil
+        for _, candidate in ipairs(getDiscardPileObjects()) do
+            if safeGetGuid(candidate) ~= cardGuid then
+                existingDiscard = candidate
+                break
+            end
+        end
+        if existingDiscard then
+            pcall(function() existingDiscard.setLock(false) end)
+        end
+
+        pcall(function()
+            if cardObj.is_face_down then cardObj.flip() end
+            cardObj.setRotationSmooth(DISCARD_ROTATION, false, true)
+            if objectIsCurrentlyInAnyHandZone(cardObj) then
+                cardObj.setPosition({x = discardPos.x, y = discardPos.y + 0.5, z = discardPos.z})
+            else
+                cardObj.setPositionSmooth({x = discardPos.x, y = discardPos.y, z = discardPos.z}, false, true)
+            end
+        end)
+
+        Wait.frames(function()
+            local liveCard = getLiveObjectByGUID(cardGuid)
+            local liveDiscard = nil
+            for _, candidate in ipairs(getDiscardPileObjects()) do
+                if safeGetGuid(candidate) ~= cardGuid then
+                    liveDiscard = candidate
+                    break
+                end
+            end
+            if liveCard and liveDiscard then
+                pcall(function()
+                    liveDiscard.setLock(false)
+                    liveDiscard.putObject(liveCard)
+                end)
+            end
+            Wait.frames(function()
+                updateTechDeckProtection()
+            end, 8)
+        end, 8)
+    end
+end
+
+-- Attaches "Discard" as the first context menu item on tech and developer cards.
+function attachDiscardMenuToCard(obj)
+    if not obj then return end
+    if safeGetType(obj) ~= "Card" then return end
+    if not (safeHasTag(obj, "tech") or safeHasTag(obj, "developer")) then return end
+    local g = safeGetGuid(obj)
+    if not g or _discardMenuInitialized[g] then return end
+    local menuOk = pcall(function()
+        obj.addContextMenuItem("Discard", function(player_color)
+            discardCardByContextMenu(obj)
+        end)
+    end)
+    if menuOk then _discardMenuInitialized[g] = true end
+end
+
+-- ============================================================
 -- ** Dev token menus: Promote and Mark for efficiency **
 -- ============================================================
 
@@ -11024,23 +11240,41 @@ function clearDevTokenEfficiencyMarks()
     end
 end
 
--- Swap a non-senior dev token for a senior one from the invoking player's bag.
+-- Swap a non-senior dev token for a senior one, using the token's own color (not the invoker's).
 function promoteDevToken(tokenObj, invokerColor)
     local oldGuid = safeGetGuid(tokenObj)
     if not oldGuid then return end
     local ok1, pos = pcall(function() return tokenObj.getPosition() end)
     local ok2, rot = pcall(function() return tokenObj.getRotation() end)
     if not ok1 or not pos or not ok2 or not rot then return end
-    local color   = normalizePlayerColorLabel(invokerColor)
-    local bagGuid = color and SENIOR_DEV_TOKEN_BAG_BY_COLOR[color]
+
+    -- Determine color and highlight state from the token's own tint.
+    local ok3, tint = pcall(function() return tokenObj.getColorTint() end)
+    local tokenColor = nil
+    local isHighlighted = false
+    if ok3 and tint then
+        tokenColor = devTokenNormalKey(tint)
+        if not tokenColor then
+            tokenColor = devTokenHighlightKey(tint)
+            if tokenColor then isHighlighted = true end
+        end
+    end
+    -- Fall back to invoker color only when tint is unrecognized.
+    local bagColor = tokenColor or normalizePlayerColorLabel(invokerColor)
+    local bagGuid = bagColor and SENIOR_DEV_TOKEN_BAG_BY_COLOR[bagColor]
     if not bagGuid then
-        broadcastToColor("No senior token bag configured for " .. tostring(invokerColor) .. ".", invokerColor or "White")
+        broadcastToColor("No senior token bag configured for " .. tostring(bagColor or invokerColor) .. ".", invokerColor or "White")
         return
     end
     local bag = getObjectFromGUID(bagGuid)
     if not bag then
         broadcastToColor("Senior dev token bag not found.", invokerColor or "White")
         return
+    end
+    -- Resolve the tint to apply to the new token before the old one is destructed.
+    local targetTint = nil
+    if tokenColor then
+        targetTint = isHighlighted and DEV_TOKEN_TINT_HIGHLIGHT[tokenColor] or DEV_TOKEN_TINT_NORMAL[tokenColor]
     end
     bag.takeObject({
         position = {x = pos.x, y = pos.y + 1, z = pos.z},
@@ -11049,10 +11283,10 @@ function promoteDevToken(tokenObj, invokerColor)
         callback_function = function(newToken)
             if not newToken then return end
             Wait.frames(function()
-                -- Large tokens sit ~0.07 higher than small ones on the same surface.
                 pcall(function()
                     newToken.setPosition({x = pos.x, y = pos.y + 0.07, z = pos.z})
                     newToken.setRotation(rot)
+                    if targetTint then newToken.setColorTint(targetTint) end
                 end)
                 local old = getObjectFromGUID(oldGuid)
                 if old then pcall(function() old.destruct() end) end
